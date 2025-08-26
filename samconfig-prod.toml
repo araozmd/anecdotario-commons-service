@@ -1,0 +1,30 @@
+# SAM Configuration for Production Environment
+
+version = 0.1
+[default]
+[default.deploy]
+[default.deploy.parameters]
+stack_name = "commons-service-prod"
+s3_bucket = "anecdotario-sam-artifacts-prod"
+s3_prefix = "commons-service"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = [
+    "Environment=prod",
+    "TableName=Photos-prod",
+    "BucketName=anecdotario-photos-prod",
+    "ParameterStorePrefix=/anecdotario/prod/commons-service"
+]
+tags = [
+    "Service=commons-service",
+    "Environment=prod",
+    "Project=anecdotario",
+    "ManagedBy=sam"
+]
+
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.validate.parameters]
+lint = true

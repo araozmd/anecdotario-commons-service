@@ -1,0 +1,334 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Anecdotario Commons Service
+  
+  Shared functionality service for all entities (users, orgs, campaigns).
+  Includes photo upload/processing and nickname validation with consistent rules.
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Deployment environment
+  
+  TableName:
+    Type: String
+    Default: Photos-dev
+    Description: DynamoDB table name for photo metadata
+  
+  BucketName:
+    Type: String
+    Default: anecdotario-photos-dev
+    Description: S3 bucket name for photo storage
+  
+  ParameterStorePrefix:
+    Type: String
+    Default: /anecdotario/dev/commons-service
+    Description: Parameter Store prefix for configuration
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Architecture: x86_64
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+        PHOTO_TABLE_NAME: !Ref TableName
+        PHOTO_BUCKET_NAME: !Ref BucketName
+        PARAMETER_STORE_PREFIX: !Ref ParameterStorePrefix
+        AWS_REGION: !Ref AWS::Region
+    Layers:
+      - !Ref CommonsServiceLayer
+
+Resources:
+  # Lambda Layer with shared dependencies
+  CommonsServiceLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub anecdotario-commons-service-layer-${Environment}
+      Description: Shared dependencies for commons service
+      ContentUri: shared/
+      CompatibleRuntimes:
+        - python3.12
+      RetentionPolicy: Delete
+    Metadata:
+      BuildMethod: python3.12
+
+  # DynamoDB Table for Photo Metadata
+  PhotoTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref TableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: photo_id
+          AttributeType: S
+        - AttributeName: entity_type
+          AttributeType: S
+        - AttributeName: entity_key
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: photo_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: entity-type-index
+          KeySchema:
+            - AttributeName: entity_type
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: entity-photos-index
+          KeySchema:
+            - AttributeName: entity_key
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      Tags:
+        - Key: Service
+          Value: commons-service
+        - Key: Environment
+          Value: !Ref Environment
+
+  # S3 Bucket for Photo Storage
+  PhotoBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - GET
+              - PUT
+              - POST
+              - DELETE
+              - HEAD
+            AllowedOrigins:
+              - "*"
+            ExposedHeaders:
+              - ETag
+            MaxAge: 3600
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Service
+          Value: commons-service
+        - Key: Environment
+          Value: !Ref Environment
+
+  # S3 Bucket Policy for Public Thumbnails
+  PhotoBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PhotoBucket
+      PolicyDocument:
+        Statement:
+          - Sid: AllowPublicThumbnailAccess
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub "${PhotoBucket}/*/*/*/thumbnail_*.jpg"
+          - Sid: DenyDirectPublicAccess
+            Effect: Deny
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: 
+              - !Sub "${PhotoBucket}/*/*/*/standard_*.jpg"
+              - !Sub "${PhotoBucket}/*/*/*/high_res_*.jpg"
+
+  # Photo Upload Function
+  PhotoUploadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub anecdotario-photo-upload-${Environment}
+      CodeUri: photo-upload/
+      Handler: app.lambda_handler
+      MemorySize: 512
+      Timeout: 60
+      ReservedConcurrencyLimit: 10
+      Description: Upload and process photos for all entity types
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PhotoTable
+        - S3CrudPolicy:
+            BucketName: !Ref PhotoBucket
+        - Statement:
+            - Sid: SSMParameterAccess
+              Effect: Allow
+              Action:
+                - ssm:GetParameter
+                - ssm:GetParameters
+              Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ParameterStorePrefix}/*"
+      Tags:
+        Service: commons-service
+        Environment: !Ref Environment
+
+  # Photo Delete Function
+  PhotoDeleteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub anecdotario-photo-delete-${Environment}
+      CodeUri: photo-delete/
+      Handler: app.lambda_handler
+      MemorySize: 256
+      Timeout: 30
+      ReservedConcurrencyLimit: 5
+      Description: Delete photos and cleanup S3 objects
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PhotoTable
+        - S3CrudPolicy:
+            BucketName: !Ref PhotoBucket
+        - Statement:
+            - Sid: SSMParameterAccess
+              Effect: Allow
+              Action:
+                - ssm:GetParameter
+                - ssm:GetParameters
+              Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ParameterStorePrefix}/*"
+      Tags:
+        Service: commons-service
+        Environment: !Ref Environment
+
+  # Photo Refresh Function
+  PhotoRefreshFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub anecdotario-photo-refresh-${Environment}
+      CodeUri: photo-refresh/
+      Handler: app.lambda_handler
+      MemorySize: 128
+      Timeout: 10
+      ReservedConcurrencyLimit: 20
+      Description: Refresh presigned URLs for protected photos
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref PhotoTable
+        - Statement:
+            - Sid: S3PresignedURLGeneration
+              Effect: Allow
+              Action:
+                - s3:GetObject
+              Resource: !Sub "${PhotoBucket}/*"
+            - Sid: SSMParameterAccess
+              Effect: Allow
+              Action:
+                - ssm:GetParameter
+                - ssm:GetParameters
+              Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ParameterStorePrefix}/*"
+      Tags:
+        Service: commons-service
+        Environment: !Ref Environment
+
+  # Nickname Validation Function
+  NicknameValidateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub anecdotario-nickname-validate-${Environment}
+      CodeUri: nickname-validate/
+      Handler: app.lambda_handler
+      MemorySize: 128
+      Timeout: 5
+      ReservedConcurrencyLimit: 50
+      Description: Validate nicknames for users, orgs, and other entities
+      Policies:
+        - Statement:
+            - Sid: SSMParameterAccess
+              Effect: Allow
+              Action:
+                - ssm:GetParameter
+                - ssm:GetParameters
+              Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ParameterStorePrefix}/*"
+      Tags:
+        Service: commons-service
+        Environment: !Ref Environment
+
+  # CloudWatch Log Groups
+  PhotoUploadLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/anecdotario-photo-upload-${Environment}
+      RetentionInDays: 14
+
+  PhotoDeleteLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/anecdotario-photo-delete-${Environment}
+      RetentionInDays: 14
+
+  PhotoRefreshLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/anecdotario-photo-refresh-${Environment}
+      RetentionInDays: 14
+
+  NicknameValidateLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/anecdotario-nickname-validate-${Environment}
+      RetentionInDays: 14
+
+Outputs:
+  PhotoUploadFunctionArn:
+    Description: Photo Upload Lambda Function ARN
+    Value: !GetAtt PhotoUploadFunction.Arn
+    Export:
+      Name: !Sub anecdotario-photo-upload-arn-${Environment}
+
+  PhotoDeleteFunctionArn:
+    Description: Photo Delete Lambda Function ARN
+    Value: !GetAtt PhotoDeleteFunction.Arn
+    Export:
+      Name: !Sub anecdotario-photo-delete-arn-${Environment}
+
+  PhotoRefreshFunctionArn:
+    Description: Photo Refresh Lambda Function ARN
+    Value: !GetAtt PhotoRefreshFunction.Arn
+    Export:
+      Name: !Sub anecdotario-photo-refresh-arn-${Environment}
+
+  PhotoTableName:
+    Description: DynamoDB Table Name for Photos
+    Value: !Ref PhotoTable
+    Export:
+      Name: !Sub anecdotario-photo-table-name-${Environment}
+
+  PhotoBucketName:
+    Description: S3 Bucket Name for Photos
+    Value: !Ref PhotoBucket
+    Export:
+      Name: !Sub anecdotario-photo-bucket-name-${Environment}
+
+  PhotoBucketArn:
+    Description: S3 Bucket ARN for Photos
+    Value: !GetAtt PhotoBucket.Arn
+    Export:
+      Name: !Sub anecdotario-photo-bucket-arn-${Environment}
+
+  NicknameValidateFunctionArn:
+    Description: Nickname Validation Lambda Function ARN
+    Value: !GetAtt NicknameValidateFunction.Arn
+    Export:
+      Name: !Sub anecdotario-nickname-validate-arn-${Environment}

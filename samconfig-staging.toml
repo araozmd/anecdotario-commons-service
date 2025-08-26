@@ -1,0 +1,30 @@
+# SAM Configuration for Staging Environment
+
+version = 0.1
+[default]
+[default.deploy]
+[default.deploy.parameters]
+stack_name = "commons-service-staging"
+s3_bucket = "anecdotario-sam-artifacts-staging"
+s3_prefix = "commons-service"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = [
+    "Environment=staging",
+    "TableName=Photos-staging",
+    "BucketName=anecdotario-photos-staging",
+    "ParameterStorePrefix=/anecdotario/staging/commons-service"
+]
+tags = [
+    "Service=commons-service",
+    "Environment=staging",
+    "Project=anecdotario",
+    "ManagedBy=sam"
+]
+
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.validate.parameters]
+lint = true

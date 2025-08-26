@@ -1,0 +1,300 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CI/CD Pipeline for Anecdotario Commons Service'
+
+Parameters:
+  GitHubToken:
+    Type: String
+    NoEcho: true
+    Description: GitHub personal access token for repository access
+    MinLength: 40
+
+  GitHubOwner:
+    Type: String
+    Default: araozmd
+    Description: GitHub repository owner/username
+
+  GitHubRepo:
+    Type: String  
+    Default: anecdotario-commons-service
+    Description: GitHub repository name
+
+  GitHubBranch:
+    Type: String
+    Default: main
+    Description: GitHub branch to track
+
+Resources:
+  # S3 Bucket for Pipeline Artifacts
+  PipelineArtifactStore:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub anecdotario-commons-pipeline-artifacts-${AWS::AccountId}
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # CodeBuild Service Role
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub anecdotario-commons-codebuild-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/PowerUserAccess
+      Policies:
+        - PolicyName: CodeBuildLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: 
+                  - !Sub '${PipelineArtifactStore.Arn}/*'
+                  - 'arn:aws:s3:::anecdotario-sam-artifacts-*/*'
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:CreateBucket
+                Resource: 
+                  - !GetAtt PipelineArtifactStore.Arn
+                  - 'arn:aws:s3:::anecdotario-sam-artifacts-*'
+
+  # CodePipeline Service Role
+  CodePipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub anecdotario-commons-codepipeline-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CodePipelinePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketVersioning
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource:
+                  - !GetAtt PipelineArtifactStore.Arn
+                  - !Sub '${PipelineArtifactStore.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                Resource: '*'
+
+  # Build Project
+  BuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub anecdotario-commons-build
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_MEDIUM
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: pipeline/buildspec.yml
+
+  # Deploy Dev Project
+  DeployDevProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub anecdotario-commons-deploy-dev
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: pipeline/deploy-dev-buildspec.yml
+
+  # Deploy Staging Project
+  DeployStagingProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub anecdotario-commons-deploy-staging
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: pipeline/deploy-staging-buildspec.yml
+
+  # Deploy Prod Project
+  DeployProdProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub anecdotario-commons-deploy-prod
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: pipeline/deploy-prod-buildspec.yml
+
+  # CodePipeline
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub anecdotario-commons-pipeline
+      RoleArn: !GetAtt CodePipelineServiceRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref PipelineArtifactStore
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Provider: GitHub
+                Version: '1'
+              Configuration:
+                Owner: !Ref GitHubOwner
+                Repo: !Ref GitHubRepo
+                Branch: !Ref GitHubBranch
+                OAuthToken: !Ref GitHubToken
+                PollForSourceChanges: true
+              OutputArtifacts:
+                - Name: SourceOutput
+
+        - Name: Build
+          Actions:
+            - Name: Build
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: !Ref BuildProject
+              InputArtifacts:
+                - Name: SourceOutput
+              OutputArtifacts:
+                - Name: BuildOutput
+
+        - Name: Deploy-Dev
+          Actions:
+            - Name: Deploy-Dev
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: !Ref DeployDevProject
+              InputArtifacts:
+                - Name: BuildOutput
+              OutputArtifacts:
+                - Name: DeployDevOutput
+
+        - Name: Deploy-Staging
+          Actions:
+            - Name: Deploy-Staging
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: !Ref DeployStagingProject
+              InputArtifacts:
+                - Name: BuildOutput
+              OutputArtifacts:
+                - Name: DeployStagingOutput
+
+        - Name: Approval
+          Actions:
+            - Name: ManualApproval
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Provider: Manual
+                Version: '1'
+              Configuration:
+                NotificationArn: !Ref ApprovalTopic
+                CustomData: 'Please review the staging deployment and approve for production'
+
+        - Name: Deploy-Prod
+          Actions:
+            - Name: Deploy-Prod
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: !Ref DeployProdProject
+              InputArtifacts:
+                - Name: BuildOutput
+
+  # SNS Topic for Approval Notifications
+  ApprovalTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub anecdotario-commons-approval
+      DisplayName: Anecdotario Commons Service Approval
+
+Outputs:
+  PipelineName:
+    Description: Name of the created pipeline
+    Value: !Ref Pipeline
+    Export:
+      Name: !Sub anecdotario-commons-pipeline-name
+
+  PipelineUrl:
+    Description: URL of the pipeline
+    Value: !Sub https://console.aws.amazon.com/codesuite/codepipeline/pipelines/${Pipeline}/view
+
+  ApprovalTopicArn:
+    Description: ARN of the approval notification topic
+    Value: !Ref ApprovalTopic
+    Export:
+      Name: !Sub anecdotario-commons-approval-topic

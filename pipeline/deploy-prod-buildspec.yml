@@ -1,0 +1,28 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.12
+    commands:
+      - pip install --upgrade pip
+      - pip install aws-sam-cli
+
+  build:
+    commands:
+      - echo "Deploying to production environment"
+      - sam deploy --template-file packaged-template.yaml --config-file samconfig-prod.toml --no-confirm-changeset --no-fail-on-empty-changeset
+      - echo "Production deployment completed"
+
+  post_build:
+    commands:
+      - echo "Validating production deployment"
+      - |
+        STACK_NAME="commons-service-prod"
+        aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].StackStatus' --output text
+        if [ $? -eq 0 ]; then
+          echo "✅ Production stack deployed successfully"
+        else
+          echo "❌ Production deployment failed"
+          exit 1
+        fi

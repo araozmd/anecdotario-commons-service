@@ -1,0 +1,30 @@
+# SAM Configuration for Commons Service - Development Environment
+
+version = 0.1
+[default]
+[default.deploy]
+[default.deploy.parameters]
+stack_name = "commons-service-dev"
+s3_bucket = "anecdotario-sam-artifacts-dev"
+s3_prefix = "commons-service"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = [
+    "Environment=dev",
+    "TableName=Photos-dev",
+    "BucketName=anecdotario-photos-dev", 
+    "ParameterStorePrefix=/anecdotario/dev/commons-service"
+]
+tags = [
+    "Service=commons-service",
+    "Environment=dev",
+    "Project=anecdotario",
+    "ManagedBy=sam"
+]
+
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.validate.parameters]
+lint = true

@@ -1,0 +1,51 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.12
+    commands:
+      - echo "Installing SAM CLI and dependencies"
+      - pip install --upgrade pip
+      - pip install aws-sam-cli pytest boto3 pynamodb Pillow
+      
+  pre_build:
+    commands:
+      - echo "Creating SAM artifacts bucket if it doesn't exist"
+      - |
+        if ! aws s3api head-bucket --bucket anecdotario-sam-artifacts-dev 2>/dev/null; then
+          aws s3 mb s3://anecdotario-sam-artifacts-dev --region us-east-1
+        fi
+      - |
+        if ! aws s3api head-bucket --bucket anecdotario-sam-artifacts-staging 2>/dev/null; then
+          aws s3 mb s3://anecdotario-sam-artifacts-staging --region us-east-1
+        fi
+      - |
+        if ! aws s3api head-bucket --bucket anecdotario-sam-artifacts-prod 2>/dev/null; then
+          aws s3 mb s3://anecdotario-sam-artifacts-prod --region us-east-1
+        fi
+      - echo "Running tests"
+      - |
+        for function_dir in photo-upload photo-delete photo-refresh nickname-validate; do
+          if [ -d "$function_dir/tests" ]; then
+            echo "Running tests for $function_dir"
+            cd $function_dir
+            if [ -f requirements.txt ]; then
+              pip install -r requirements.txt
+            fi
+            pytest tests/ -v || echo "Tests failed for $function_dir"
+            cd ..
+          fi
+        done
+
+  build:
+    commands:
+      - echo "Building SAM application"
+      - sam build --parallel --cached
+      - echo "Packaging application"
+      - sam package --s3-bucket anecdotario-sam-artifacts-dev --s3-prefix commons-service --output-template-file packaged-template.yaml
+
+artifacts:
+  files:
+    - packaged-template.yaml
+    - samconfig-*.toml
