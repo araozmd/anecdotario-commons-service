@@ -167,7 +167,7 @@ Resources:
       Handler: app.lambda_handler
       MemorySize: 512
       Timeout: 60
-      ReservedConcurrencyLimit: 10
+      ReservedConcurrentExecutions: 10
       Description: Upload and process photos for all entity types
       Policies:
         - DynamoDBCrudPolicy:
@@ -194,7 +194,7 @@ Resources:
       Handler: app.lambda_handler
       MemorySize: 256
       Timeout: 30
-      ReservedConcurrencyLimit: 5
+      ReservedConcurrentExecutions: 5
       Description: Delete photos and cleanup S3 objects
       Policies:
         - DynamoDBCrudPolicy:
@@ -221,7 +221,7 @@ Resources:
       Handler: app.lambda_handler
       MemorySize: 128
       Timeout: 10
-      ReservedConcurrencyLimit: 20
+      ReservedConcurrentExecutions: 20
       Description: Refresh presigned URLs for protected photos
       Policies:
         - DynamoDBReadPolicy:
@@ -251,7 +251,7 @@ Resources:
       Handler: app.lambda_handler
       MemorySize: 128
       Timeout: 5
-      ReservedConcurrencyLimit: 50
+      ReservedConcurrentExecutions: 50
       Description: Validate nicknames for users, orgs, and other entities
       Policies:
         - Statement:
