@@ -11,7 +11,9 @@ phases:
   build:
     commands:
       - echo "Deploying to development environment"
-      - sam deploy --template-file packaged-template.yaml --config-file samconfig-dev.toml --no-confirm-changeset --no-fail-on-empty-changeset
+      - echo "Source artifacts location: $CODEBUILD_SRC_DIR"
+      - echo "Build artifacts location: $CODEBUILD_SRC_DIR_BuildOutput"
+      - sam deploy --template-file $CODEBUILD_SRC_DIR_BuildOutput/packaged-template.yaml --config-file samconfig-dev.toml --no-confirm-changeset --no-fail-on-empty-changeset
       - echo "Development deployment completed"
 
   post_build:
