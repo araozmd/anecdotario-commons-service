@@ -230,7 +230,9 @@ Resources:
                 Version: '1'
               Configuration:
                 ProjectName: !Ref DeployDevProject
+                PrimarySource: SourceOutput
               InputArtifacts:
+                - Name: SourceOutput
                 - Name: BuildOutput
               OutputArtifacts:
                 - Name: DeployDevOutput
@@ -245,7 +247,9 @@ Resources:
                 Version: '1'
               Configuration:
                 ProjectName: !Ref DeployStagingProject
+                PrimarySource: SourceOutput
               InputArtifacts:
+                - Name: SourceOutput
                 - Name: BuildOutput
               OutputArtifacts:
                 - Name: DeployStagingOutput
@@ -272,7 +276,9 @@ Resources:
                 Version: '1'
               Configuration:
                 ProjectName: !Ref DeployProdProject
+                PrimarySource: SourceOutput
               InputArtifacts:
+                - Name: SourceOutput
                 - Name: BuildOutput
 
   # SNS Topic for Approval Notifications
