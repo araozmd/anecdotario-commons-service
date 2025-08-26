@@ -11,8 +11,8 @@ phases:
   build:
     commands:
       - echo "Deploying to production environment"
-      - echo "Source artifacts location: $CODEBUILD_SRC_DIR"
-      - echo "Build artifacts location: $CODEBUILD_SRC_DIR_BuildOutput"
+      - 'echo "Source artifacts location: $CODEBUILD_SRC_DIR"'
+      - 'echo "Build artifacts location: $CODEBUILD_SRC_DIR_BuildOutput"'
       - sam deploy --template-file $CODEBUILD_SRC_DIR_BuildOutput/packaged-template.yaml --config-file samconfig-prod.toml --no-confirm-changeset --no-fail-on-empty-changeset
       - echo "Production deployment completed"
 
