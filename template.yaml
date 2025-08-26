@@ -31,7 +31,7 @@ Parameters:
 Globals:
   Function:
     Runtime: python3.12
-    Architecture: x86_64
+    Architectures: [x86_64]
     Environment:
       Variables:
         ENVIRONMENT: !Ref Environment
