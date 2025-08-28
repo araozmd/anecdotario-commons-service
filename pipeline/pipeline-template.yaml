@@ -69,6 +69,7 @@ Resources:
                   - cloudformation:ExecuteChangeSet
                   - cloudformation:GetTemplateSummary
                   - cloudformation:ListStackResources
+                  - cloudformation:DeleteStack
                 Resource:
                   - !Sub 'arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/commons-service-*/*'
               - Sid: IAMAccess
@@ -86,8 +87,12 @@ Resources:
                   - iam:UntagRole
                   - iam:CreatePolicy
                   - iam:DeletePolicy
+                  - iam:ListRoleTags
+                  - iam:UpdateRole
+                  - iam:UpdateRoleDescription
                 Resource: 
                   - !Sub 'arn:aws:iam::${AWS::AccountId}:role/*'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:policy/*'
               - Sid: IAMListAccess
                 Effect: Allow
                 Action:
