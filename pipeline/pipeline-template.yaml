@@ -53,8 +53,6 @@ Resources:
             Principal:
               Service: codebuild.amazonaws.com
             Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/PowerUserAccess
       Policies:
         - PolicyName: ScopedSAMDeployPolicy
           PolicyDocument:
@@ -85,6 +83,7 @@ Resources:
                   - iam:GetRole
                   - iam:PassRole
                   - iam:TagRole
+                  - iam:UntagRole
                 Resource: 
                   - !Sub 'arn:aws:iam::${AWS::AccountId}:role/commons-service-*'
               - Sid: IAMListAccess
