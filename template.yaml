@@ -38,7 +38,6 @@ Globals:
         PHOTO_TABLE_NAME: !Ref TableName
         PHOTO_BUCKET_NAME: !Ref BucketName
         PARAMETER_STORE_PREFIX: !Ref ParameterStorePrefix
-        AWS_REGION: !Ref AWS::Region
     Layers:
       - !Ref CommonsServiceLayer
 
