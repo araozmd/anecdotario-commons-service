@@ -148,14 +148,14 @@ Resources:
             Effect: Allow
             Principal: "*"
             Action: s3:GetObject
-            Resource: !Sub "${PhotoBucket}/*/*/*/thumbnail_*.jpg"
+            Resource: !Sub "arn:aws:s3:::${PhotoBucket}/*/*/*/thumbnail_*.jpg"
           - Sid: DenyDirectPublicAccess
             Effect: Deny
             Principal: "*"
             Action: s3:GetObject
             Resource: 
-              - !Sub "${PhotoBucket}/*/*/*/standard_*.jpg"
-              - !Sub "${PhotoBucket}/*/*/*/high_res_*.jpg"
+              - !Sub "arn:aws:s3:::${PhotoBucket}/*/*/*/standard_*.jpg"
+              - !Sub "arn:aws:s3:::${PhotoBucket}/*/*/*/high_res_*.jpg"
 
   # Photo Upload Function
   PhotoUploadFunction:
@@ -227,7 +227,7 @@ Resources:
               Effect: Allow
               Action:
                 - s3:GetObject
-              Resource: !Sub "${PhotoBucket}/*"
+              Resource: !Sub "arn:aws:s3:::${PhotoBucket}/*"
             - Sid: SSMParameterAccess
               Effect: Allow
               Action:
