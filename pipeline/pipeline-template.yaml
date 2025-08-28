@@ -158,8 +158,10 @@ Resources:
                   - logs:DeleteLogGroup
                   - logs:PutRetentionPolicy
                   - logs:DescribeLogGroups
+                  - logs:TagResource
                 Resource:
-                  - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/anecdotario-*-*'
+                  - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/anecdotario-*'
+                  - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
               - Sid: SSMAccess
                 Effect: Allow
                 Action:
