@@ -116,9 +116,11 @@ Resources:
                   - lambda:DeleteLayerVersion
                   - lambda:GetLayerVersion
                   - lambda:UpdateLayerVersion
+                  - lambda:PublishLayerVersion
                 Resource:
                   - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:anecdotario-*'
-                  - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:layer:anecdotario-commons-service-layer-*'
+                  - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:layer:anecdotario-*'
+                  - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:layer:anecdotario-*:*'
               - Sid: DynamoDBAccess
                 Effect: Allow
                 Action:
