@@ -84,8 +84,10 @@ Resources:
                   - iam:PassRole
                   - iam:TagRole
                   - iam:UntagRole
+                  - iam:CreatePolicy
+                  - iam:DeletePolicy
                 Resource: 
-                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/commons-service-*'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/*'
               - Sid: IAMListAccess
                 Effect: Allow
                 Action:
