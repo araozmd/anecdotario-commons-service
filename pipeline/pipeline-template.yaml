@@ -117,6 +117,8 @@ Resources:
                   - lambda:GetLayerVersion
                   - lambda:UpdateLayerVersion
                   - lambda:PublishLayerVersion
+                  - lambda:PutFunctionConcurrency
+                  - lambda:DeleteFunctionConcurrency
                 Resource:
                   - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:anecdotario-*'
                   - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:layer:anecdotario-*'
