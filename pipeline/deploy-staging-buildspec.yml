@@ -13,7 +13,21 @@ phases:
       - echo "Deploying to staging environment"
       - 'echo "Source artifacts location: $CODEBUILD_SRC_DIR"'
       - 'echo "Build artifacts location: $CODEBUILD_SRC_DIR_BuildOutput"'
-      - sam deploy --template-file $CODEBUILD_SRC_DIR_BuildOutput/packaged-template.yaml --config-file samconfig-staging.toml --no-confirm-changeset --no-fail-on-empty-changeset
+      - |
+        # Check if stack exists and handle ROLLBACK_FAILED state
+        STACK_NAME="commons-service-staging"
+        STACK_STATUS=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].StackStatus' --output text 2>/dev/null)
+        
+        if [ "$STACK_STATUS" = "ROLLBACK_FAILED" ] || [ "$STACK_STATUS" = "UPDATE_ROLLBACK_FAILED" ]; then
+          echo "Stack is in $STACK_STATUS state. Deleting stack before redeployment..."
+          aws cloudformation delete-stack --stack-name $STACK_NAME
+          echo "Waiting for stack deletion to complete..."
+          aws cloudformation wait stack-delete-complete --stack-name $STACK_NAME
+          echo "Stack deleted successfully"
+        fi
+        
+        # Deploy the stack
+        sam deploy --template-file $CODEBUILD_SRC_DIR_BuildOutput/packaged-template.yaml --config-file samconfig-staging.toml --no-confirm-changeset --no-fail-on-empty-changeset
       - echo "Staging deployment completed"
 
   post_build:
