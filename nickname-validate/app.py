@@ -98,43 +98,34 @@ def lambda_handler(event, context):
         
         validation_result = nickname_validator.validate(nickname, entity_type)
         
-        if validation_result:
-            # Nickname is invalid
-            response_data = {
-                'valid': False,
-                'nickname': nickname,
-                'entity_type': entity_type,
-                'error': validation_result['error'],
-                'hints': validation_result['hints'],
-                'validation_failed': True
-            }
-            
-            print(f"Nickname validation failed: {validation_result['error']}")
-            
-            return create_response(
-                200,  # 200 OK, but validation failed
-                json.dumps(response_data),
-                event,
-                ['POST', 'GET']
-            )
+        # Enhanced response with errors, warnings, and normalized version
+        response_data = {
+            'valid': validation_result['valid'],
+            'original': validation_result['original'],
+            'normalized': validation_result['normalized'],
+            'entity_type': validation_result['entity_type'],
+            'errors': validation_result['errors'],
+            'warnings': validation_result['warnings'],
+            'hints': validation_result['hints']
+        }
+        
+        # Add legacy fields for backward compatibility
+        if validation_result['valid']:
+            response_data['message'] = 'Nickname is valid'
+            response_data['validation_passed'] = True
+            print(f"Nickname validation passed: {nickname} (normalized: {validation_result['normalized']})")
         else:
-            # Nickname is valid
-            response_data = {
-                'valid': True,
-                'nickname': nickname,
-                'entity_type': entity_type,
-                'message': 'Nickname is valid',
-                'validation_passed': True
-            }
-            
-            print(f"Nickname validation passed: {nickname}")
-            
-            return create_response(
-                200,
-                json.dumps(response_data),
-                event,
-                ['POST', 'GET']
-            )
+            # For backward compatibility, join errors into single error message
+            response_data['error'] = '; '.join(validation_result['errors']) if validation_result['errors'] else None
+            response_data['validation_failed'] = True
+            print(f"Nickname validation failed: {validation_result['errors']}")
+        
+        return create_response(
+            200,  # Always 200 OK, check 'valid' field for result
+            json.dumps(response_data),
+            event,
+            ['POST', 'GET']
+        )
         
     except Exception as e:
         print(f"Unexpected error in nickname validation: {str(e)}")
