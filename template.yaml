@@ -495,11 +495,6 @@ Outputs:
     Export:
       Name: !Sub anecdotario-commons-service-layer-arn-${Environment}
 
-  CommonsServiceLayerVersion:
-    Description: Commons Service Layer Version
-    Value: !GetAtt CommonsServiceLayer.Version
-    Export:
-      Name: !Sub anecdotario-commons-service-layer-version-${Environment}
 
   # User-Organization CRUD Functions
   UserOrgCreateFunctionArn:
