@@ -260,6 +260,142 @@ Resources:
         Service: commons-service
         Environment: !Ref Environment
 
+  # User-Organization CRUD Functions
+  UserOrgCreateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub anecdotario-user-org-create-${Environment}
+      CodeUri: user-org-create/
+      Handler: app.lambda_handler
+      MemorySize: 256
+      Timeout: 30
+      Description: Create users or organizations with unique nicknames
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Sub UserOrg-${Environment}
+        - Statement:
+            - Sid: SSMParameterAccess
+              Effect: Allow
+              Action:
+                - ssm:GetParameter
+                - ssm:GetParameters
+              Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ParameterStorePrefix}/*"
+      Tags:
+        Service: commons-service
+        Environment: !Ref Environment
+
+  UserOrgGetFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub anecdotario-user-org-get-${Environment}
+      CodeUri: user-org-get/
+      Handler: app.lambda_handler
+      MemorySize: 256
+      Timeout: 15
+      Description: Get user or organization entities with flexible querying
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Sub UserOrg-${Environment}
+        - Statement:
+            - Sid: SSMParameterAccess
+              Effect: Allow
+              Action:
+                - ssm:GetParameter
+                - ssm:GetParameters
+              Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ParameterStorePrefix}/*"
+      Tags:
+        Service: commons-service
+        Environment: !Ref Environment
+
+  UserOrgUpdateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub anecdotario-user-org-update-${Environment}
+      CodeUri: user-org-update/
+      Handler: app.lambda_handler
+      MemorySize: 256
+      Timeout: 20
+      Description: Update user or organization entity data
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Sub UserOrg-${Environment}
+        - Statement:
+            - Sid: SSMParameterAccess
+              Effect: Allow
+              Action:
+                - ssm:GetParameter
+                - ssm:GetParameters
+              Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ParameterStorePrefix}/*"
+      Tags:
+        Service: commons-service
+        Environment: !Ref Environment
+
+  UserOrgDeleteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub anecdotario-user-org-delete-${Environment}
+      CodeUri: user-org-delete/
+      Handler: app.lambda_handler
+      MemorySize: 256
+      Timeout: 20
+      Description: Delete user or organization entities (soft or hard delete)
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Sub UserOrg-${Environment}
+        - Statement:
+            - Sid: SSMParameterAccess
+              Effect: Allow
+              Action:
+                - ssm:GetParameter
+                - ssm:GetParameters
+              Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ParameterStorePrefix}/*"
+      Tags:
+        Service: commons-service
+        Environment: !Ref Environment
+
+  # User-Organization DynamoDB Table
+  UserOrgTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub UserOrg-${Environment}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: nickname
+          AttributeType: S
+        - AttributeName: user_type
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+        - AttributeName: is_certified
+          AttributeType: S
+      KeySchema:
+        - AttributeName: nickname
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: user-type-index
+          KeySchema:
+            - AttributeName: user_type
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: certified-index
+          KeySchema:
+            - AttributeName: is_certified
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      Tags:
+        - Key: Service
+          Value: commons-service
+        - Key: Environment
+          Value: !Ref Environment
+
   # CloudWatch Log Groups
   PhotoUploadLogGroup:
     Type: AWS::Logs::LogGroup
@@ -283,6 +419,30 @@ Resources:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub /aws/lambda/anecdotario-nickname-validate-${Environment}
+      RetentionInDays: 14
+
+  UserOrgCreateLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/anecdotario-user-org-create-${Environment}
+      RetentionInDays: 14
+
+  UserOrgGetLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/anecdotario-user-org-get-${Environment}
+      RetentionInDays: 14
+
+  UserOrgUpdateLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/anecdotario-user-org-update-${Environment}
+      RetentionInDays: 14
+
+  UserOrgDeleteLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/anecdotario-user-org-delete-${Environment}
       RetentionInDays: 14
 
 Outputs:
@@ -327,3 +487,48 @@ Outputs:
     Value: !GetAtt NicknameValidateFunction.Arn
     Export:
       Name: !Sub anecdotario-nickname-validate-arn-${Environment}
+
+  # Lambda Layer Export
+  CommonsServiceLayerArn:
+    Description: Commons Service Layer ARN for shared contracts and utilities
+    Value: !Ref CommonsServiceLayer
+    Export:
+      Name: !Sub anecdotario-commons-service-layer-arn-${Environment}
+
+  CommonsServiceLayerVersion:
+    Description: Commons Service Layer Version
+    Value: !GetAtt CommonsServiceLayer.Version
+    Export:
+      Name: !Sub anecdotario-commons-service-layer-version-${Environment}
+
+  # User-Organization CRUD Functions
+  UserOrgCreateFunctionArn:
+    Description: User-Organization Create Lambda Function ARN
+    Value: !GetAtt UserOrgCreateFunction.Arn
+    Export:
+      Name: !Sub anecdotario-user-org-create-arn-${Environment}
+
+  UserOrgGetFunctionArn:
+    Description: User-Organization Get Lambda Function ARN
+    Value: !GetAtt UserOrgGetFunction.Arn
+    Export:
+      Name: !Sub anecdotario-user-org-get-arn-${Environment}
+
+  UserOrgUpdateFunctionArn:
+    Description: User-Organization Update Lambda Function ARN
+    Value: !GetAtt UserOrgUpdateFunction.Arn
+    Export:
+      Name: !Sub anecdotario-user-org-update-arn-${Environment}
+
+  UserOrgDeleteFunctionArn:
+    Description: User-Organization Delete Lambda Function ARN
+    Value: !GetAtt UserOrgDeleteFunction.Arn
+    Export:
+      Name: !Sub anecdotario-user-org-delete-arn-${Environment}
+
+  # User-Organization Table
+  UserOrgTableName:
+    Description: DynamoDB Table Name for User-Organization entities
+    Value: !Ref UserOrgTable
+    Export:
+      Name: !Sub anecdotario-user-org-table-name-${Environment}

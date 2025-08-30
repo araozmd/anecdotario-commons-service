@@ -232,6 +232,10 @@ Resources:
                   - codebuild:BatchGetBuilds
                   - codebuild:StartBuild
                 Resource: '*'
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref ApprovalTopic
 
   # Build Project
   BuildProject:
