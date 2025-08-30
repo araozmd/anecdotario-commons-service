@@ -6,6 +6,8 @@ Enhanced with robust validation, warnings, and user-friendly hints
 import re
 from typing import Dict, List
 from ..config import config
+from ..constants import ValidationConstants, ConfigDefaults, EntityConstants
+from ..exceptions import ValidationError
 
 
 class NicknameValidator:
@@ -22,12 +24,12 @@ class NicknameValidator:
     }
     
     def __init__(self):
-        # Load configuration
-        self.min_length = config.get_int_parameter('nickname-min-length', 3)
-        self.max_length = config.get_int_parameter('nickname-max-length', 30)
-        self.enable_confusing_filter = config.get_bool_parameter('enable-confusing-char-filter', True)
-        self.enable_reserved_check = config.get_bool_parameter('enable-reserved-word-check', True)
-        self.allow_leading_digits = config.get_bool_parameter('allow-leading-digits', False)
+        # Load configuration with constants as defaults
+        self.min_length = config.get_int_parameter('nickname-min-length', ValidationConstants.MIN_NICKNAME_LENGTH)
+        self.max_length = config.get_int_parameter('nickname-max-length', ValidationConstants.MAX_NICKNAME_LENGTH)
+        self.enable_confusing_filter = config.get_bool_parameter('enable-confusing-char-filter', ConfigDefaults.DEFAULT_ENABLE_CONFUSING_FILTER)
+        self.enable_reserved_check = config.get_bool_parameter('enable-reserved-word-check', ConfigDefaults.DEFAULT_ENABLE_RESERVED_CHECK)
+        self.allow_leading_digits = config.get_bool_parameter('allow-leading-digits', ConfigDefaults.DEFAULT_ALLOW_LEADING_DIGITS)
     
     def normalize_nickname(self, nickname: str) -> str:
         """
@@ -82,7 +84,7 @@ class NicknameValidator:
             result['hints'].append(f"Try shortening your nickname (maximum {self.max_length} characters)")
         
         # Rule 2: Character validation
-        if not re.match(r'^[a-z0-9_]+$', normalized):
+        if not re.match(ValidationConstants.NICKNAME_PATTERN, normalized):
             invalid_chars = [c for c in normalized if not re.match(r'[a-z0-9_]', c)]
             result['errors'].append(f"Invalid characters: {', '.join(set(invalid_chars))}")
             result['hints'].append("Only use lowercase letters (a-z), numbers (0-9), and underscores (_)")
@@ -140,7 +142,7 @@ class NicknameValidator:
             for reserved in reserved_words:
                 if reserved in normalized and normalized != reserved:
                     # Only warn if reserved word appears as a complete word segment
-                    if len(reserved) >= 4 and (normalized.startswith(reserved + '_') or 
+                    if len(reserved) >= ValidationConstants.RESERVED_WORD_MIN_LENGTH_FOR_PARTIAL and (normalized.startswith(reserved + '_') or 
                                                normalized.endswith('_' + reserved) or
                                                f'_{reserved}_' in normalized):
                         result['warnings'].append(f"Contains reserved word '{reserved}'")
@@ -148,7 +150,7 @@ class NicknameValidator:
                         break
         
         # Rule 8: Minimum complexity (avoid too simple nicknames)
-        if len(set(normalized)) <= 2 and len(normalized) >= 3:
+        if len(set(normalized)) <= ValidationConstants.MIN_NICKNAME_UNIQUE_CHARS and len(normalized) >= ValidationConstants.MIN_NICKNAME_LENGTH:
             result['warnings'].append("Nickname has very low complexity")
             result['hints'].append("Consider using more varied characters for a unique identifier")
         
@@ -156,6 +158,24 @@ class NicknameValidator:
         if normalized.isdigit():
             result['warnings'].append("Nickname contains only numbers")
             result['hints'].append("Consider adding some letters to make it more memorable")
+        
+        # Rule 10: Uniqueness check across users and organizations
+        try:
+            from ..models.user_org import UserOrg
+            if UserOrg.nickname_exists(normalized):
+                result['errors'].append(f"Nickname '{normalized}' is already taken")
+                result['hints'].append("Try adding numbers or modifying the nickname to make it unique")
+                # Suggest alternatives
+                result['hints'].append(f"Suggestions: '{normalized}1', '{normalized}_user', '{normalized}_{entity_type}'")
+        except ImportError:
+            # If UserOrg model not available, skip uniqueness check
+            # This allows the validator to work in contexts where the model isn't loaded
+            pass
+        except Exception as e:
+            # Log error but don't fail validation - this is a non-critical check
+            # The service layer should handle uniqueness as well
+            result['warnings'].append("Could not verify nickname uniqueness")
+            result['hints'].append("Uniqueness will be verified when creating the account")
         
         # Success case
         if not result['errors']:

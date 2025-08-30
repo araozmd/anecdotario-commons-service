@@ -5,6 +5,8 @@ import json
 import uuid
 from datetime import datetime
 from typing import Dict, Any, Optional
+from .constants import HTTPConstants, StorageConstants, TimeConstants
+from .exceptions import ValidationError
 
 
 def create_response(status_code: int, body: str, event: Dict[str, Any], allowed_methods: list = None) -> Dict[str, Any]:
@@ -29,7 +31,7 @@ def create_response(status_code: int, body: str, event: Dict[str, Any], allowed_
     response = {
         'statusCode': status_code,
         'headers': {
-            'Content-Type': 'application/json',
+            'Content-Type': HTTPConstants.CONTENT_TYPE_JSON,
             'Access-Control-Allow-Origin': origin,
             'Access-Control-Allow-Methods': ', '.join(allowed_methods),
             'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
