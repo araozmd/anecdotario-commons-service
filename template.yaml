@@ -390,8 +390,6 @@ Resources:
       MemorySize: 256
       Timeout: 15
       Description: Search users and organizations by nickname or full name
-      Layers:
-        - !Ref CommonsServiceLayer
       Environment:
         Variables:
           USER_ORG_TABLE_NAME: !Sub UserOrg-${Environment}
