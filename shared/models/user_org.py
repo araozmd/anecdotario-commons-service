@@ -262,6 +262,122 @@ class UserOrg(Model):
         
         return [entity.to_public_dict() for entity in results]
     
+    @classmethod
+    def search_entities(cls, query: str, limit: int = 20, last_evaluated_key: Optional[Dict] = None) -> Dict[str, Any]:
+        """
+        Search for entities by query matching nickname or full_name (contains match)
+        Note: This requires a scan operation - use with reasonable limits
+        
+        Args:
+            query: Search query to match against nickname or full_name
+            limit: Maximum results (default 20, max recommended 50)
+            last_evaluated_key: DynamoDB pagination key from previous search
+            
+        Returns:
+            Dictionary with results, pagination info, and metadata
+        """
+        if not query or len(query.strip()) < 2:
+            return {
+                'results': [],
+                'total_found': 0,
+                'has_more': False,
+                'last_evaluated_key': None
+            }
+        
+        query_lower = query.strip().lower()
+        
+        try:
+            # Perform single scan with both nickname and full_name filtering
+            # This is more efficient than multiple scans for pagination
+            filter_condition = (
+                (cls.nickname.contains(query_lower) | cls.full_name.contains(query_lower)) &
+                (cls.status == 'active')
+            )
+            
+            # Build scan arguments
+            scan_kwargs = {
+                'filter_condition': filter_condition,
+                'limit': limit * 2  # Get extra items to account for Python filtering
+            }
+            
+            # Add pagination key if provided
+            if last_evaluated_key:
+                scan_kwargs['last_evaluated_key'] = last_evaluated_key
+            
+            # Perform scan
+            scan_result = cls.scan(**scan_kwargs)
+            
+            # Process results with case-insensitive full_name matching
+            processed_results = []
+            items_scanned = 0
+            last_key = None
+            
+            for entity in scan_result:
+                items_scanned += 1
+                last_key = {'nickname': entity.nickname}  # Primary key for pagination
+                
+                # Check matches (nickname is already case-sensitive via DynamoDB)
+                nickname_match = query_lower in entity.nickname
+                fullname_match = query_lower in entity.full_name.lower()
+                
+                if nickname_match or fullname_match:
+                    # Determine match type and position
+                    if nickname_match and fullname_match:
+                        match_type = 'both'
+                        match_position = min(
+                            entity.nickname.find(query_lower),
+                            entity.full_name.lower().find(query_lower)
+                        )
+                    elif nickname_match:
+                        match_type = 'nickname'
+                        match_position = entity.nickname.find(query_lower)
+                    else:
+                        match_type = 'full_name' 
+                        match_position = entity.full_name.lower().find(query_lower)
+                    
+                    processed_results.append({
+                        **entity.to_public_dict(),
+                        'match_type': match_type,
+                        'match_position': match_position
+                    })
+                
+                # Stop if we have enough results
+                if len(processed_results) >= limit:
+                    break
+            
+            # Sort by relevance
+            processed_results.sort(key=lambda x: (
+                0 if x['match_type'] == 'nickname' else 1,  # Nickname matches first
+                1 if x['match_type'] == 'both' else 2,      # Both matches second
+                x['match_position'],                         # Earlier position = higher relevance
+                -x.get('followers_count', 0)                 # More followers = tie-breaker
+            ))
+            
+            # Limit to requested amount
+            final_results = processed_results[:limit]
+            
+            # Determine if there are more results
+            has_more = len(processed_results) == limit and items_scanned == (limit * 2)
+            
+            return {
+                'results': final_results,
+                'total_found': len(final_results),
+                'has_more': has_more,
+                'last_evaluated_key': last_key if has_more else None,
+                'items_scanned': items_scanned
+            }
+            
+        except Exception as e:
+            # If scan fails, return empty results rather than error
+            print(f"Search scan failed: {str(e)}")
+            return {
+                'results': [],
+                'total_found': 0,
+                'has_more': False,
+                'last_evaluated_key': None,
+                'error': str(e)
+            }
+    
     def update_stats(self, followers_delta: int = 0, following_delta: int = 0, posts_delta: int = 0):
         """
         Update entity statistics

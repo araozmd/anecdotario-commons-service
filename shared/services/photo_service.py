@@ -178,6 +178,29 @@ class PhotoService:
                               photo_id=photo_id, 
                               entity_type=entity_type)
         
+        # Update UserOrg table with thumbnail URL for profile photos
+        if photo_type in ['profile', 'logo'] and image_urls.get('thumbnail'):
+            try:
+                from ..models.user_org import UserOrg
+                entity = UserOrg.get_by_nickname(entity_id)
+                if entity:
+                    entity.update_avatar(image_urls['thumbnail'])
+                    self.logger.info(f"Updated {entity_type} {entity_id} avatar URL", 
+                                   entity_type=entity_type,
+                                   entity_id=entity_id,
+                                   thumbnail_url=image_urls['thumbnail'])
+                else:
+                    self.logger.warning(f"Entity {entity_type}/{entity_id} not found in UserOrg table for avatar update",
+                                      entity_type=entity_type,
+                                      entity_id=entity_id)
+            except ImportError:
+                self.logger.warning("UserOrg model not available for avatar update")
+            except Exception as e:
+                self.logger.warning(f"Failed to update {entity_type} avatar: {str(e)}", 
+                                  entity_type=entity_type,
+                                  entity_id=entity_id,
+                                  error=str(e))
+        
         # Log successful business event
         self.logger.log_business_event('photo_uploaded', 
                                      entity_type=entity_type,
@@ -228,6 +251,17 @@ class PhotoService:
         # Delete from S3
         s3_keys = photo.get_s3_keys()
         deletion_result = self._delete_s3_objects(s3_keys)
+        
+        # Update UserOrg table if deleting profile/logo photo
+        if photo.photo_type in ['profile', 'logo']:
+            try:
+                from ..models.user_org import UserOrg
+                entity = UserOrg.get_by_nickname(photo.entity_id)
+                if entity:
+                    entity.update_avatar('')  # Clear avatar URL
+                    self.logger.info(f"Cleared {photo.entity_type} {photo.entity_id} avatar URL after photo deletion")
+            except (ImportError, Exception) as e:
+                self.logger.warning(f"Failed to clear avatar URL: {str(e)}")
         
         # Delete from database
         try:
@@ -287,6 +321,9 @@ class PhotoService:
                 result['s3_files_deleted'] = deletion_result['deleted_files']
                 result['deletion_errors'].extend(deletion_result['errors'])
             
+            # Check if we need to clear avatar URLs
+            profile_photos_deleted = any(p.photo_type in ['profile', 'logo'] for p in photos)
+            
             # Delete photos from database
             for photo in photos:
                 try:
@@ -296,6 +333,20 @@ class PhotoService:
                     result['deletion_errors'].append({
                         'operation': 'database_delete',
                         'photo_id': photo.photo_id,
+                        'error': str(e)
+                    })
+            
+            # Clear avatar URL in UserOrg if profile/logo photos were deleted
+            if profile_photos_deleted:
+                try:
+                    from ..models.user_org import UserOrg
+                    entity = UserOrg.get_by_nickname(entity_id)
+                    if entity:
+                        entity.update_avatar('')
+                        self.logger.info(f"Cleared {entity_type} {entity_id} avatar URL after deleting profile photos")
+                except (ImportError, Exception) as e:
+                    result['deletion_errors'].append({
+                        'operation': 'avatar_clear',
                         'error': str(e)
                     })
             
@@ -531,6 +582,9 @@ class PhotoService:
                         'photo_id': photo.photo_id,
                         'error': str(e)
                     })
+            
+            # Note: We don't clear avatar URL here since cleanup happens before new upload
+            # The new photo upload will set the new avatar URL immediately after cleanup
             
         except Exception as e:
             cleanup_result['deletion_errors'].append({

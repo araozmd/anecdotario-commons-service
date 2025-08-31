@@ -52,6 +52,33 @@ Resources:
       CompatibleRuntimes:
         - python3.12
       RetentionPolicy: Delete
+
+  # API Gateway for search endpoints
+  CommonsServiceApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub anecdotario-commons-service-api-${Environment}
+      StageName: !Ref Environment
+      Description: API Gateway for Commons Service search functionality
+      Cors:
+        AllowMethods: "'GET, POST, OPTIONS'"
+        AllowHeaders: "'Content-Type, Authorization'"
+        AllowOrigin: "'*'"
+        MaxAge: "'600'"
+      GatewayResponses:
+        DEFAULT_4XX:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: "'*'"
+              Access-Control-Allow-Headers: "'Content-Type, Authorization'"
+        DEFAULT_5XX:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: "'*'"
+              Access-Control-Allow-Headers: "'Content-Type, Authorization'"
+      Tags:
+        Service: commons-service
+        Environment: !Ref Environment
     Metadata:
       BuildMethod: python3.12
 
@@ -353,6 +380,42 @@ Resources:
         Service: commons-service
         Environment: !Ref Environment
 
+  # User-Organization Search Function
+  UserOrgSearchFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub anecdotario-user-org-search-${Environment}
+      CodeUri: user-org-search/
+      Handler: app.lambda_handler
+      MemorySize: 256
+      Timeout: 15
+      Description: Search users and organizations by nickname or full name
+      Layers:
+        - !Ref CommonsServiceLayer
+      Environment:
+        Variables:
+          USER_ORG_TABLE_NAME: !Sub UserOrg-${Environment}
+      Events:
+        SearchApi:
+          Type: Api
+          Properties:
+            Path: /search
+            Method: GET
+            RestApiId: !Ref CommonsServiceApi
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Sub UserOrg-${Environment}
+        - Statement:
+            - Sid: SSMParameterAccess
+              Effect: Allow
+              Action:
+                - ssm:GetParameter
+                - ssm:GetParameters
+              Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ParameterStorePrefix}/*"
+      Tags:
+        Service: commons-service
+        Environment: !Ref Environment
+
   # User-Organization DynamoDB Table
   UserOrgTable:
     Type: AWS::DynamoDB::Table
@@ -494,6 +557,18 @@ Outputs:
     Value: !Ref CommonsServiceLayer
     Export:
       Name: !Sub anecdotario-commons-service-layer-arn-${Environment}
+  # User-Organization Functions
+  UserOrgSearchFunctionArn:
+    Description: User-Organization Search Lambda Function ARN
+    Value: !GetAtt UserOrgSearchFunction.Arn
+    Export:
+      Name: !Sub anecdotario-user-org-search-arn-${Environment}
+  # API Gateway
+  CommonsServiceApiUrl:
+    Description: Commons Service API Gateway URL
+    Value: !Sub "https://${CommonsServiceApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+    Export:
+      Name: !Sub anecdotario-commons-service-api-url-${Environment}
 
 
   # User-Organization CRUD Functions
