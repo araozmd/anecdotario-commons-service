@@ -72,6 +72,8 @@ Resources:
                   - cloudformation:DeleteStack
                 Resource:
                   - !Sub 'arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/commons-service-*/*'
+                  - !Sub 'arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/aws-sam-cli-managed-*/*'
+                  - !Sub 'arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:changeset/*'
                   - !Sub 'arn:aws:cloudformation:${AWS::Region}:aws:transform/Serverless-2016-10-31'
               - Sid: IAMAccess
                 Effect: Allow
@@ -179,17 +181,8 @@ Resources:
               - Sid: APIGatewayAccess
                 Effect: Allow
                 Action:
-                  - apigateway:POST
-                  - apigateway:PUT
-                  - apigateway:PATCH
-                  - apigateway:DELETE
-                  - apigateway:GET
-                  - apigateway:TagResource
-                  - apigateway:UntagResource
-                Resource:
-                  - !Sub 'arn:aws:apigateway:${AWS::Region}::/restapis'
-                  - !Sub 'arn:aws:apigateway:${AWS::Region}::/restapis/*'
-                  - !Sub 'arn:aws:apigateway:${AWS::Region}::/tags/*'
+                  - apigateway:*
+                Resource: "*"
         - PolicyName: CodeBuildLogs
           PolicyDocument:
             Version: '2012-10-17'
