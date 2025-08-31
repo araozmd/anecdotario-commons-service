@@ -176,6 +176,20 @@ Resources:
                   - ssm:GetParameter
                 Resource:
                   - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/anecdotario/*/commons-service/*'
+              - Sid: APIGatewayAccess
+                Effect: Allow
+                Action:
+                  - apigateway:POST
+                  - apigateway:PUT
+                  - apigateway:PATCH
+                  - apigateway:DELETE
+                  - apigateway:GET
+                  - apigateway:TagResource
+                  - apigateway:UntagResource
+                Resource:
+                  - !Sub 'arn:aws:apigateway:${AWS::Region}::/restapis'
+                  - !Sub 'arn:aws:apigateway:${AWS::Region}::/restapis/*'
+                  - !Sub 'arn:aws:apigateway:${AWS::Region}::/tags/*'
         - PolicyName: CodeBuildLogs
           PolicyDocument:
             Version: '2012-10-17'
