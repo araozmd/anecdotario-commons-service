@@ -554,7 +554,7 @@ Outputs:
     Description: Commons Service Layer ARN for shared contracts and utilities
     Value: !Ref CommonsServiceLayer
     Export:
-      Name: !Sub anecdotario-commons-service-layer-arn-${Environment}
+      Name: !Sub anecdotario-commons-service-layer-arn-v2-${Environment}
   # User-Organization Functions
   UserOrgSearchFunctionArn:
     Description: User-Organization Search Lambda Function ARN
