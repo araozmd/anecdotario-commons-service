@@ -4,16 +4,17 @@ info:
   description: |
     Centralized shared functionality service for all Anecdotario entities (users, organizations).
     
-    **Core Capabilities**:
-    - **Photo Management**: Multi-version photo processing (thumbnail, standard, high-res) with S3 storage
-    - **Nickname Validation**: Centralized uniqueness validation for users and organizations (accessed via Lambda invocation)
-    - **Entity Search**: Unified search across users and organizations
-    - **User-Organization Management**: CRUD operations for user and organization entities
+    **Public API Endpoints**:
+    - **Entity Search** (`GET /search`): Find users and organizations by nickname or full name
     
-    **Architecture**: 
-    - **Internal Service**: Primarily used for Lambda-to-Lambda invocations by other microservices
-    - **Search API**: Public REST endpoint for frontend applications  
-    - **Commons Library Integration**: Uses anecdotario-commons==1.0.3 for shared models and utilities
+    **Internal Service Functions** (Lambda Invocation Only):
+    - **Photo Management**: Multi-version photo processing and URL generation
+    - **Nickname Validation**: Centralized uniqueness validation for users and organizations  
+    - **User-Organization CRUD**: Entity management operations
+    
+    **Usage**:
+    - **Frontend Applications**: Use the `/search` REST API for user/org discovery
+    - **Backend Microservices**: Invoke internal Lambda functions directly for shared functionality
     
     **Security**: All endpoints require JWT authentication via AWS Cognito User Pool
   version: 2.0.0
@@ -484,21 +485,30 @@ paths:
         - Search
       summary: Search users and organizations
       description: |
-        Searches across users and organizations by nickname or full name with intelligent matching.
+        Search for users and organizations by nickname or full name. Returns matching entities with 
+        their basic information including display name, avatar URL, and verification status.
         
-        **Search Strategy**:
-        1. **Exact nickname match** - Highest priority
-        2. **Nickname prefix match** - Second priority  
-        3. **Full name contains** - Fallback search
+        **How Search Works**:
+        1. **Exact nickname match** - Returns user/org with exact nickname (e.g., "john_doe")
+        2. **Nickname prefix match** - Returns entities whose nicknames start with query (e.g., "john" matches "john_doe", "johnny")  
+        3. **Full name contains** - Searches within display names (e.g., "John" matches "John Smith", "Johnny Doe")
         
-        **Features**:
-        - Case-insensitive search
-        - Configurable result limits and pagination
-        - Optional entity type filtering
-        - Verified/certified entity filtering
-        - Performance metrics in response
+        **Example Usage**:
+        - `GET /search?q=john_doe` - Find user with exact nickname "john_doe"
+        - `GET /search?q=john&entity_type=user&limit=5` - Find up to 5 users starting with "john"
+        - `GET /search?q=Company&entity_type=org&verified_only=true` - Find verified orgs containing "Company"
         
-        **Security**: Requires valid JWT token. Users can search all public entities.
+        **Response Data**:
+        Each result includes: nickname, display_name, entity_type, avatar_url, verification status, creation date.
+        
+        **Filtering Options**:
+        - `entity_type`: Limit to 'user' or 'org' only
+        - `verified_only`: Return only verified entities  
+        - `certified_only`: Return only certified entities
+        - `limit`: Control result count (1-50, default: 10)
+        - `page`: Pagination support
+        
+        **Security**: Requires valid JWT token. Returns only public entity information.
       operationId: searchEntities
       parameters:
         - name: q
@@ -553,6 +563,39 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SearchResponse'
+              example:
+                results:
+                  - entity_type: "user"
+                    nickname: "john_doe"
+                    entity_id: "12345"
+                    display_name: "John Doe"
+                    full_name: "John Doe"
+                    avatar_url: "https://anecdotario-photos-dev.s3.amazonaws.com/users/john_doe/profile/thumbnail_2024.jpg"
+                    is_verified: true
+                    is_certified: false
+                    created_at: 1672531200
+                    updated_at: 1672531200
+                  - entity_type: "org"
+                    nickname: "acme_corp"  
+                    entity_id: "67890"
+                    display_name: "ACME Corporation"
+                    full_name: "ACME Corporation"
+                    avatar_url: "https://anecdotario-photos-dev.s3.amazonaws.com/orgs/acme_corp/logo/thumbnail_2024.jpg"
+                    is_verified: true
+                    is_certified: true
+                    created_at: 1672617600
+                    updated_at: 1672617600
+                pagination:
+                  total_count: 2
+                  page_size: 10
+                  current_page: 1
+                  total_pages: 1
+                  has_next: false
+                query_info:
+                  query: "john"
+                  normalized_query: "john"
+                  search_type: "nickname_prefix"
+                  execution_time_ms: 45.2
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -571,21 +614,15 @@ tags:
       
   - name: Internal
     description: |
-      **Internal Service Operations**
+      **Internal Service Operations (Lambda Invocation Only)**
       
-      These operations are typically accessed via direct Lambda invocations rather than HTTP API calls.
-      Other microservices use boto3 Lambda client to invoke these functions directly.
+      The Commons Service provides additional functionality accessed via direct Lambda invocation by other microservices.
+      These are not REST endpoints and are not accessible through the API Gateway.
       
-      **Photo Operations** (Lambda Invocation):
-      - `anecdotario-photo-upload-{env}`
-      - `anecdotario-photo-delete-{env}` 
-      - `anecdotario-photo-refresh-{env}`
+      **Available Internal Functions**:
+      - **Photo Operations**: Upload, delete, and refresh photo URLs with multi-version processing
+      - **Nickname Validation**: Check nickname uniqueness across users and organizations
+      - **User-Org CRUD**: Create, read, update, delete operations for user and organization entities
       
-      **User-Org Operations** (Lambda Invocation):
-      - `anecdotario-user-org-create-{env}`
-      - `anecdotario-user-org-get-{env}`
-      - `anecdotario-user-org-update-{env}`
-      - `anecdotario-user-org-delete-{env}`
-      
-      **Nickname Validation** (Lambda Invocation):
-      - `anecdotario-nickname-validate-{env}`
+      **Usage**: Other services invoke these using `boto3.client('lambda').invoke()` with function names like:
+      `anecdotario-{function-name}-{environment}` (e.g., `anecdotario-photo-upload-dev`)
