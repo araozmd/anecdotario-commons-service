@@ -51,6 +51,7 @@ phases:
           # Use AWS CLI to publish directly - no login needed in CodeBuild
           for wheel in dist/*.whl; do
             echo "Publishing $(basename $wheel)..."
+            HASH=$(sha256sum $wheel | cut -d' ' -f1)
             aws codeartifact publish-package-version \
               --domain anecdotario \
               --repository anecdotario-commons \
@@ -58,11 +59,13 @@ phases:
               --package anecdotario-commons \
               --package-version 1.0.0 \
               --asset-content fileb://$wheel \
-              --asset-name $(basename $wheel)
+              --asset-name $(basename $wheel) \
+              --asset-sha256 $HASH
           done
           
           for tarball in dist/*.tar.gz; do
             echo "Publishing $(basename $tarball)..."
+            HASH=$(sha256sum $tarball | cut -d' ' -f1)
             aws codeartifact publish-package-version \
               --domain anecdotario \
               --repository anecdotario-commons \
@@ -70,7 +73,8 @@ phases:
               --package anecdotario-commons \
               --package-version 1.0.0 \
               --asset-content fileb://$tarball \
-              --asset-name $(basename $tarball)
+              --asset-name $(basename $tarball) \
+              --asset-sha256 $HASH
           done
         else
           echo "CodeArtifact domain not found, skipping package publish. This is expected on first deployment."
