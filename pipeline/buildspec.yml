@@ -46,36 +46,24 @@ phases:
       - python -m build
       - |
         if aws codeartifact describe-domain --domain anecdotario >/dev/null 2>&1; then
-          echo "CodeArtifact domain exists, publishing package directly with AWS CLI..."
+          echo "CodeArtifact domain exists, configuring authentication and publishing..."
           
-          # Use AWS CLI to publish directly - no login needed in CodeBuild
-          for wheel in dist/*.whl; do
-            echo "Publishing $(basename $wheel)..."
-            HASH=$(sha256sum $wheel | cut -d' ' -f1)
-            aws codeartifact publish-package-version \
-              --domain anecdotario \
-              --repository anecdotario-commons \
-              --format pypi \
-              --package anecdotario-commons \
-              --package-version 1.0.0 \
-              --asset-content fileb://$wheel \
-              --asset-name $(basename $wheel) \
-              --asset-sha256 $HASH
-          done
+          # Get CodeArtifact credentials and configure twine
+          export CODEARTIFACT_AUTH_TOKEN=$(aws codeartifact get-authorization-token --domain anecdotario --query authorizationToken --output text)
+          export TWINE_USERNAME=aws
+          export TWINE_PASSWORD=$CODEARTIFACT_AUTH_TOKEN
+          export TWINE_REPOSITORY_URL=$(aws codeartifact get-repository-endpoint --domain anecdotario --repository anecdotario-commons --format pypi --query repositoryEndpoint --output text)
           
-          for tarball in dist/*.tar.gz; do
-            echo "Publishing $(basename $tarball)..."
-            HASH=$(sha256sum $tarball | cut -d' ' -f1)
-            aws codeartifact publish-package-version \
-              --domain anecdotario \
-              --repository anecdotario-commons \
-              --format pypi \
-              --package anecdotario-commons \
-              --package-version 1.0.0 \
-              --asset-content fileb://$tarball \
-              --asset-name $(basename $tarball) \
-              --asset-sha256 $HASH
-          done
+          echo "Publishing to: $TWINE_REPOSITORY_URL"
+          
+          # Use twine with explicit credentials
+          python -m twine upload \
+            --repository-url $TWINE_REPOSITORY_URL \
+            --username aws \
+            --password $CODEARTIFACT_AUTH_TOKEN \
+            --non-interactive \
+            --disable-progress-bar \
+            dist/*
         else
           echo "CodeArtifact domain not found, skipping package publish. This is expected on first deployment."
         fi
