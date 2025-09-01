@@ -28,6 +28,10 @@ Parameters:
     Default: /anecdotario/dev/commons-service
     Description: Parameter Store prefix for configuration
 
+Conditions:
+  IsDevEnvironment: !Equals [!Ref Environment, dev]
+  IsProdEnvironment: !Equals [!Ref Environment, prod]
+
 Globals:
   Function:
     Runtime: python3.12
@@ -41,7 +45,7 @@ Globals:
 
 Resources:
 
-  # API Gateway for search endpoints
+  # API Gateway for search endpoints with JWT Authorization
   CommonsServiceApi:
     Type: AWS::Serverless::Api
     Properties:
@@ -49,26 +53,75 @@ Resources:
       StageName: !Ref Environment
       Description: API Gateway for Commons Service search functionality
       Cors:
-        AllowMethods: "'GET, POST, OPTIONS'"
-        AllowHeaders: "'Content-Type, Authorization'"
-        AllowOrigin: "'*'"
+        AllowOrigin: !If 
+          - IsDevEnvironment
+          - "'*'"
+          - !Sub "'https://${Environment}.anecdotario.com,https://anecdotario.com'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowCredentials: false
         MaxAge: "'600'"
+      Auth:
+        DefaultAuthorizer: CognitoJWTAuthorizer
+        AddDefaultAuthorizerToCorsPreflight: false  # Don't require auth for OPTIONS
+        Authorizers:
+          CognitoJWTAuthorizer:
+            Type: COGNITO_USER_POOLS
+            UserPoolArn: !Sub 
+              - "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/{{resolve:ssm:/anecdotario/${EnvironmentName}/cognito/user-pool-id}}"
+              - EnvironmentName: !If 
+                  - IsDevEnvironment
+                  - development
+                  - !If 
+                    - IsProdEnvironment
+                    - production
+                    - !Ref Environment
+            Identity:
+              Header: Authorization
       GatewayResponses:
+        UNAUTHORIZED:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: !If 
+                - IsDevEnvironment
+                - "'*'"
+                - !Sub "'https://${Environment}.anecdotario.com,https://anecdotario.com'"
+              Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              Access-Control-Allow-Credentials: "'false'"
+        ACCESS_DENIED:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: !If 
+                - IsDevEnvironment
+                - "'*'"
+                - !Sub "'https://${Environment}.anecdotario.com,https://anecdotario.com'"
+              Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              Access-Control-Allow-Credentials: "'false'"
         DEFAULT_4XX:
           ResponseParameters:
             Headers:
-              Access-Control-Allow-Origin: "'*'"
-              Access-Control-Allow-Headers: "'Content-Type, Authorization'"
+              Access-Control-Allow-Origin: !If 
+                - IsDevEnvironment
+                - "'*'"
+                - !Sub "'https://${Environment}.anecdotario.com,https://anecdotario.com'"
+              Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              Access-Control-Allow-Credentials: "'false'"
         DEFAULT_5XX:
           ResponseParameters:
             Headers:
-              Access-Control-Allow-Origin: "'*'"
-              Access-Control-Allow-Headers: "'Content-Type, Authorization'"
+              Access-Control-Allow-Origin: !If 
+                - IsDevEnvironment
+                - "'*'"
+                - !Sub "'https://${Environment}.anecdotario.com,https://anecdotario.com'"
+              Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              Access-Control-Allow-Credentials: "'false'"
       Tags:
         Service: commons-service
         Environment: !Ref Environment
-    Metadata:
-      BuildMethod: python3.12
 
   # DynamoDB Table for Photo Metadata
   PhotoTable:
@@ -388,6 +441,8 @@ Resources:
             Path: /search
             Method: GET
             RestApiId: !Ref CommonsServiceApi
+            Auth:
+              Authorizer: CognitoJWTAuthorizer
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Sub UserOrg-${Environment}

@@ -1,0 +1,707 @@
+openapi: 3.0.3
+info:
+  title: Anecdotario Commons Service API
+  description: |
+    Centralized shared functionality service for all Anecdotario entities (users, organizations, campaigns).
+    
+    **Core Capabilities**:
+    - **Photo Management**: Multi-version photo processing (thumbnail, standard, high-res) with S3 storage
+    - **Nickname Validation**: Centralized uniqueness validation across all entity types
+    - **Entity Search**: Unified search across users and organizations
+    - **User-Organization Management**: CRUD operations for user and organization entities
+    
+    **Architecture**: 
+    - **Internal Service**: Primarily used for Lambda-to-Lambda invocations by other microservices
+    - **Search API**: Public REST endpoint for frontend applications  
+    - **Commons Library Integration**: Uses anecdotario-commons==1.0.3 for shared models and utilities
+    
+    **Security**: All endpoints require JWT authentication via AWS Cognito User Pool
+  version: 2.0.0
+  contact:
+    name: Anecdotario Support
+    email: support@anecdotario.com
+  license:
+    name: Proprietary
+    
+servers:
+  - url: https://api.anecdotario.com/commons
+    description: Production server
+  - url: https://stage.api.anecdotario.com/commons
+    description: Staging server
+  - url: https://dev.api.anecdotario.com/commons
+    description: Development server
+    
+security:
+  - CognitoJWT: []
+
+components:
+  securitySchemes:
+    CognitoJWT:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: AWS Cognito JWT token for authentication
+      
+  schemas:
+    Error:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: Error message
+        code:
+          type: string
+          description: Error code
+        details:
+          type: object
+          description: Additional error details
+          
+    SearchResult:
+      type: object
+      required:
+        - entity_type
+        - nickname
+        - entity_id
+      properties:
+        entity_type:
+          type: string
+          description: Type of entity
+          enum:
+            - user
+            - org
+        nickname:
+          type: string
+          description: Entity nickname/identifier
+          minLength: 3
+          maxLength: 30
+        entity_id:
+          type: string
+          description: Entity unique identifier
+        display_name:
+          type: string
+          description: Human-readable display name
+        full_name:
+          type: string
+          description: Full name (for users) or organization name
+        avatar_url:
+          type: string
+          format: uri
+          description: Avatar/logo thumbnail URL
+        is_verified:
+          type: boolean
+          description: Whether the entity is verified
+          default: false
+        is_certified:
+          type: boolean
+          description: Whether the entity is certified
+          default: false
+        created_at:
+          type: integer
+          format: int64
+          description: Unix timestamp when entity was created
+        updated_at:
+          type: integer
+          format: int64
+          description: Unix timestamp when entity was last updated
+          
+    SearchResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchResult'
+          description: Search results
+        pagination:
+          type: object
+          properties:
+            total_count:
+              type: integer
+              description: Total number of results available
+              minimum: 0
+            page_size:
+              type: integer
+              description: Number of items per page
+              minimum: 1
+              maximum: 50
+            current_page:
+              type: integer
+              description: Current page number (1-based)
+              minimum: 1
+            total_pages:
+              type: integer
+              description: Total number of pages
+              minimum: 1
+            has_next:
+              type: boolean
+              description: Whether there are more pages
+            next_page:
+              type: integer
+              description: Next page number (if has_next is true)
+              minimum: 2
+        query_info:
+          type: object
+          properties:
+            query:
+              type: string
+              description: Original search query
+            normalized_query:
+              type: string
+              description: Normalized search query used
+            search_type:
+              type: string
+              description: Type of search performed
+              enum:
+                - nickname_exact
+                - nickname_prefix
+                - full_name_contains
+                - mixed
+            filters_applied:
+              type: object
+              properties:
+                entity_types:
+                  type: array
+                  items:
+                    type: string
+                  description: Entity types included in search
+                verified_only:
+                  type: boolean
+                  description: Whether search was limited to verified entities
+                certified_only:
+                  type: boolean
+                  description: Whether search was limited to certified entities
+            execution_time_ms:
+              type: number
+              description: Query execution time in milliseconds
+          
+    NicknameValidationResponse:
+      type: object
+      required:
+        - valid
+        - available
+      properties:
+        valid:
+          type: boolean
+          description: Whether the nickname passes format validation
+        available:
+          type: boolean
+          description: Whether the nickname is available for use (not taken)
+        nickname:
+          type: string
+          description: Original nickname that was validated
+        normalized:
+          type: string
+          description: Normalized (lowercase) version used for uniqueness checking
+        entity_type:
+          type: string
+          description: Entity type this validation was performed for
+          enum:
+            - user
+            - org
+            - campaign
+        validation_errors:
+          type: array
+          items:
+            type: string
+          description: List of validation errors (if any)
+        hints:
+          type: array
+          items:
+            type: string
+          description: User-friendly suggestions for fixing invalid nicknames
+        reserved_reason:
+          type: string
+          description: Reason if nickname is reserved
+          enum:
+            - system_reserved
+            - api_reserved
+            - admin_reserved
+            - platform_reserved
+        uniqueness_check:
+          type: object
+          properties:
+            checked_entity_types:
+              type: array
+              items:
+                type: string
+              description: Entity types checked for uniqueness
+            conflict_found:
+              type: boolean
+              description: Whether a conflict was found
+            conflict_entity_type:
+              type: string
+              description: Entity type that conflicts (if any)
+              
+    PhotoUploadResponse:
+      type: object
+      required:
+        - message
+        - photo_id
+      properties:
+        message:
+          type: string
+          example: "Photo uploaded successfully"
+        photo_id:
+          type: string
+          description: Unique identifier for the uploaded photo
+        entity_type:
+          type: string
+          description: Entity type the photo belongs to
+        entity_id:
+          type: string
+          description: Entity identifier
+        photo_type:
+          type: string
+          description: Type of photo uploaded
+        urls:
+          type: object
+          properties:
+            thumbnail_url:
+              type: string
+              format: uri
+              description: Public URL for thumbnail version (150x150)
+            standard_url:
+              type: string
+              format: uri
+              description: Presigned URL for standard version (320x320)
+            high_res_url:
+              type: string
+              format: uri
+              description: Presigned URL for high resolution version (800x800)
+        metadata:
+          type: object
+          properties:
+            original_size:
+              type: object
+              properties:
+                width:
+                  type: integer
+                height:
+                  type: integer
+                file_size:
+                  type: integer
+            processing_info:
+              type: object
+              properties:
+                cropped:
+                  type: boolean
+                  description: Whether image was cropped to square
+                resized:
+                  type: boolean
+                  description: Whether image was resized
+                format_converted:
+                  type: boolean
+                  description: Whether image format was converted
+            storage_info:
+              type: object
+              properties:
+                bucket_name:
+                  type: string
+                s3_keys:
+                  type: object
+                  properties:
+                    thumbnail:
+                      type: string
+                    standard:
+                      type: string
+                    high_res:
+                      type: string
+        created_at:
+          type: integer
+          format: int64
+          description: Unix timestamp when photo was uploaded
+          
+    PhotoDeleteResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Photo deleted successfully"
+        deleted_objects:
+          type: array
+          items:
+            type: string
+          description: List of S3 objects that were deleted
+        cleanup_info:
+          type: object
+          properties:
+            database_records_removed:
+              type: integer
+              description: Number of database records removed
+            s3_objects_deleted:
+              type: integer
+              description: Number of S3 objects deleted
+            total_storage_freed_bytes:
+              type: integer
+              description: Total storage space freed in bytes
+              
+    PhotoRefreshResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Photo URLs refreshed successfully"
+        photo_id:
+          type: string
+          description: Photo identifier
+        urls:
+          type: object
+          properties:
+            thumbnail_url:
+              type: string
+              format: uri
+              description: Public URL for thumbnail version (unchanged)
+            standard_url:
+              type: string
+              format: uri
+              description: New presigned URL for standard version
+            high_res_url:
+              type: string
+              format: uri
+              description: New presigned URL for high resolution version
+        url_expiry:
+          type: object
+          properties:
+            standard_expires_at:
+              type: integer
+              format: int64
+              description: Unix timestamp when standard URL expires
+            high_res_expires_at:
+              type: integer
+              format: int64
+              description: Unix timestamp when high-res URL expires
+            expires_in_seconds:
+              type: integer
+              description: Seconds until URLs expire
+              
+    UserOrgEntity:
+      type: object
+      required:
+        - nickname
+        - user_type
+        - created_at
+      properties:
+        nickname:
+          type: string
+          description: Unique nickname/identifier
+          minLength: 3
+          maxLength: 30
+        user_type:
+          type: string
+          description: Type of entity
+          enum:
+            - user
+            - org
+        full_name:
+          type: string
+          description: Full name or organization name
+          maxLength: 100
+        display_name:
+          type: string
+          description: Display name for UI
+          maxLength: 50
+        email:
+          type: string
+          format: email
+          description: Contact email address
+        description:
+          type: string
+          description: Entity description or bio
+          maxLength: 1000
+        avatar_urls:
+          type: object
+          properties:
+            thumbnail:
+              type: string
+              format: uri
+            standard:
+              type: string
+              format: uri
+            high_res:
+              type: string
+              format: uri
+        website:
+          type: string
+          format: uri
+          description: Website URL
+        location:
+          type: string
+          description: Location or address
+          maxLength: 100
+        is_verified:
+          type: boolean
+          description: Whether entity is verified
+          default: false
+        is_certified:
+          type: boolean
+          description: Whether entity is certified
+          default: false
+        is_active:
+          type: boolean
+          description: Whether entity is active
+          default: true
+        privacy_level:
+          type: string
+          description: Privacy level setting
+          enum:
+            - public
+            - protected
+            - private
+          default: public
+        settings:
+          type: object
+          description: Entity-specific settings
+          additionalProperties: true
+        metadata:
+          type: object
+          description: Additional metadata
+          additionalProperties: true
+        created_at:
+          type: integer
+          format: int64
+          description: Unix timestamp when created
+        updated_at:
+          type: integer
+          format: int64
+          description: Unix timestamp when last updated
+        last_activity_at:
+          type: integer
+          format: int64
+          description: Unix timestamp of last activity
+          
+  responses:
+    UnauthorizedError:
+      description: Access token is missing or invalid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: "Unauthorized - Valid JWT token required"
+            code: "UNAUTHORIZED"
+            
+    ForbiddenError:
+      description: Access forbidden - insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: "Forbidden - Insufficient permissions"
+            code: "FORBIDDEN"
+            
+    NotFoundError:
+      description: The specified resource was not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: "Resource not found"
+            code: "NOT_FOUND"
+            
+    ValidationError:
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: "Validation failed"
+            code: "VALIDATION_ERROR"
+            details:
+              field: "nickname"
+              error: "Nickname must be between 3 and 30 characters"
+              
+    ServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: "Internal server error"
+            code: "INTERNAL_ERROR"
+            
+    PayloadTooLargeError:
+      description: Request payload too large
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: "Photo file too large (max 5MB)"
+            code: "PAYLOAD_TOO_LARGE"
+
+paths:
+  /search:
+    get:
+      tags:
+        - Search
+      summary: Search users and organizations
+      description: |
+        Searches across users and organizations by nickname or full name with intelligent matching.
+        
+        **Search Strategy**:
+        1. **Exact nickname match** - Highest priority
+        2. **Nickname prefix match** - Second priority  
+        3. **Full name contains** - Fallback search
+        
+        **Features**:
+        - Case-insensitive search
+        - Configurable result limits and pagination
+        - Optional entity type filtering
+        - Verified/certified entity filtering
+        - Performance metrics in response
+        
+        **Security**: Requires valid JWT token. Users can search all public entities.
+      operationId: searchEntities
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Search query (nickname or full name)
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+          example: "john_doe"
+        - name: entity_type
+          in: query
+          description: Filter by entity type
+          schema:
+            type: string
+            enum:
+              - user
+              - org
+          example: "user"
+        - name: verified_only
+          in: query
+          description: Return only verified entities
+          schema:
+            type: boolean
+            default: false
+        - name: certified_only
+          in: query
+          description: Return only certified entities
+          schema:
+            type: boolean
+            default: false
+        - name: limit
+          in: query
+          description: Number of results to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+        - name: page
+          in: query
+          description: Page number for pagination (1-based)
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+      responses:
+        '200':
+          description: Search results retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+          
+  /validate/nickname:
+    get:
+      tags:
+        - Validation
+      summary: Validate nickname availability and format
+      description: |
+        Validates nickname format and checks uniqueness across all entity types.
+        
+        **Validation Rules**:
+        - Length: 3-30 characters
+        - Characters: a-z, 0-9, single underscores only
+        - Cannot start/end with underscore
+        - No consecutive underscores
+        - Case-insensitive uniqueness check
+        - Reserved word checking
+        
+        **Cross-Entity Uniqueness**: Ensures uniqueness between users, organizations, and campaigns.
+      operationId: validateNickname
+      parameters:
+        - name: nickname
+          in: query
+          required: true
+          description: Nickname to validate
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 50
+          example: "my_nickname_2024"
+        - name: entity_type
+          in: query
+          description: Entity type for context-specific validation
+          schema:
+            type: string
+            enum:
+              - user
+              - org
+              - campaign
+            default: user
+      responses:
+        '200':
+          description: Nickname validation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NicknameValidationResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+tags:
+  - name: Search
+    description: |
+      **Entity Search Operations**
+      
+      Unified search across users and organizations with intelligent ranking and filtering.
+      Primarily used by frontend applications for user/org discovery and selection.
+      
+  - name: Validation  
+    description: |
+      **Validation Services**
+      
+      Centralized validation logic for nicknames and other data with cross-service consistency.
+      Used by all microservices to ensure data integrity and uniqueness constraints.
+      
+  - name: Internal
+    description: |
+      **Internal Service Operations**
+      
+      These operations are typically accessed via direct Lambda invocations rather than HTTP API calls.
+      Other microservices use boto3 Lambda client to invoke these functions directly.
+      
+      **Photo Operations** (Lambda Invocation):
+      - `anecdotario-photo-upload-{env}`
+      - `anecdotario-photo-delete-{env}` 
+      - `anecdotario-photo-refresh-{env}`
+      
+      **User-Org Operations** (Lambda Invocation):
+      - `anecdotario-user-org-create-{env}`
+      - `anecdotario-user-org-get-{env}`
+      - `anecdotario-user-org-update-{env}`
+      - `anecdotario-user-org-delete-{env}`
+      
+      **Nickname Validation** (Lambda Invocation):
+      - `anecdotario-nickname-validate-{env}`
