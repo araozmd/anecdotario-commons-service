@@ -199,8 +199,10 @@ Resources:
                 Effect: Allow
                 Action:
                   - ssm:GetParameter
+                  - ssm:GetParameters
                 Resource:
                   - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/anecdotario/*/commons-service/*'
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/anecdotario/*/cognito/*'
               - Sid: APIGatewayAccess
                 Effect: Allow
                 Action:
