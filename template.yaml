@@ -49,8 +49,8 @@ Resources:
   CommonsServiceApi:
     Type: AWS::Serverless::Api
     Properties:
-      Name: !Sub anecdotario-commons-service-api-${Environment}
-      StageName: !Ref Environment
+      Name: !Sub commons-service-${Environment}-api
+      StageName: Prod
       Description: API Gateway for Commons Service search functionality
       Cors:
         AllowOrigin: !If 
