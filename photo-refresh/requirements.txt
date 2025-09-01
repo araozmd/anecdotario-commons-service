@@ -1,2 +1,6 @@
 boto3>=1.34.0
-pynamodb>=6.0.0anecdotario-commons==1.0.0
+
+pynamodb>=6.0.0
+
+anecdotario-commons==1.0.0
+

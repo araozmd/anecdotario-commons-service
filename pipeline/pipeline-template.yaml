@@ -46,18 +46,23 @@ Resources:
     Type: AWS::CodeArtifact::Domain
     Properties:
       DomainName: anecdotario
-      
-  # CodeArtifact Repository for commons package
+
+  AnecdotarioUpstreamPypi:
+    Type: AWS::CodeArtifact::Repository
+    Properties:
+      RepositoryName: anecdotario-upstream-pypi
+      DomainName: !GetAtt AnecdotarioCodeArtifactDomain.Name
+      ExternalConnections:
+        - public:pypi
+
   AnecdotarioCommonsRepository:
     Type: AWS::CodeArtifact::Repository
     Properties:
       RepositoryName: anecdotario-commons
-      DomainName: !Ref AnecdotarioCodeArtifactDomain
+      DomainName: !GetAtt AnecdotarioCodeArtifactDomain.Name
       Description: Repository for Anecdotario shared commons package
       Upstreams:
-        - pypi
-      ExternalConnections:
-        - public:pypi
+        - !GetAtt AnecdotarioUpstreamPypi.Name
 
   # CodeBuild Service Role
   CodeBuildServiceRole:

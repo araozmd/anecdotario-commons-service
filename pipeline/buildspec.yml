@@ -47,11 +47,12 @@ phases:
       - |
         if aws codeartifact describe-domain --domain anecdotario >/dev/null 2>&1; then
           echo "CodeArtifact domain exists, publishing package..."
-          aws codeartifact get-authorization-token --domain anecdotario --duration-seconds 0 --query authorizationToken --output text > /tmp/codeartifact-token
+          export CODEARTIFACT_AUTH_TOKEN=$(aws codeartifact get-authorization-token --domain anecdotario --duration-seconds 3600 --query authorizationToken --output text)
           export TWINE_USERNAME=aws
-          export TWINE_PASSWORD=$(cat /tmp/codeartifact-token)
+          export TWINE_PASSWORD=$CODEARTIFACT_AUTH_TOKEN
           export TWINE_REPOSITORY_URL=$(aws codeartifact get-repository-endpoint --domain anecdotario --repository anecdotario-commons --format pypi --query repositoryEndpoint --output text)
-          twine upload dist/*
+          echo "Publishing to: $TWINE_REPOSITORY_URL"
+          python -m twine upload --repository-url $TWINE_REPOSITORY_URL dist/*
         else
           echo "CodeArtifact domain not found, skipping package publish. This is expected on first deployment."
         fi
