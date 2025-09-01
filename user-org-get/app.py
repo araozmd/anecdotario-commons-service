@@ -4,19 +4,15 @@ Retrieves user or organization data with flexible query options
 """
 import json
 import os
-import sys
 
 # Add shared directory to path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-from decorators import validate_query_or_body, handle_exceptions, cors_enabled, log_request
-from services.service_container import get_service
-from utils import create_response, create_error_response
-from constants import HTTPConstants
-from exceptions import EntityNotFoundError
+from anecdotario_commons.decorators import validate_query_or_body, handle_exceptions, cors_enabled, log_request
+from anecdotario_commons.services.service_container import get_service
+from anecdotario_commons.utils import create_response, create_error_response
+from anecdotario_commons.constants import HTTPConstants
+from anecdotario_commons.exceptions import EntityNotFoundError
 import functools
-
-
 def user_org_get_handler(func):
     """Custom composite decorator for user-org get handler"""
     
@@ -29,8 +25,6 @@ def user_org_get_handler(func):
         return func(event, context)
     
     return wrapper
-
-
 @user_org_get_handler
 def lambda_handler(event, context):
     """

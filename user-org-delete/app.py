@@ -4,18 +4,14 @@ Deletes user or organization data (soft delete by default)
 """
 import json
 import os
-import sys
 
 # Add shared directory to path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-from decorators import standard_lambda_handler
-from services.service_container import get_service
-from utils import create_response
-from constants import HTTPConstants
-from exceptions import EntityNotFoundError
-
-
+from anecdotario_commons.decorators import standard_lambda_handler
+from anecdotario_commons.services.service_container import get_service
+from anecdotario_commons.utils import create_response
+from anecdotario_commons.constants import HTTPConstants
+from anecdotario_commons.exceptions import EntityNotFoundError
 @standard_lambda_handler(
     required_fields=['nickname'],
     entity_validation=False,

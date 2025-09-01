@@ -41,6 +41,25 @@ Resources:
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
 
+  # CodeArtifact Domain for private packages
+  AnecdotarioCodeArtifactDomain:
+    Type: AWS::CodeArtifact::Domain
+    Properties:
+      DomainName: anecdotario
+      AssetSizeLimit: 2147483648  # 2GB limit
+      
+  # CodeArtifact Repository for commons package
+  AnecdotarioCommonsRepository:
+    Type: AWS::CodeArtifact::Repository
+    Properties:
+      RepositoryName: anecdotario-commons
+      DomainName: !Ref AnecdotarioCodeArtifactDomain
+      Description: Repository for Anecdotario shared commons package
+      Upstreams:
+        - pypi
+      ExternalConnections:
+        - public:pypi
+
   # CodeBuild Service Role
   CodeBuildServiceRole:
     Type: AWS::IAM::Role
@@ -183,6 +202,19 @@ Resources:
                 Action:
                   - apigateway:*
                 Resource: "*"
+              - Sid: CodeArtifactAccess
+                Effect: Allow
+                Action:
+                  - codeartifact:DescribeDomain
+                  - codeartifact:DescribeRepository
+                  - codeartifact:GetAuthorizationToken
+                  - codeartifact:GetRepositoryEndpoint
+                  - codeartifact:PublishPackageVersion
+                  - codeartifact:PutPackageMetadata
+                  - sts:GetServiceBearerToken
+                Resource:
+                  - !GetAtt AnecdotarioCodeArtifactDomain.Arn
+                  - !GetAtt AnecdotarioCommonsRepository.Arn
         - PolicyName: CodeBuildLogs
           PolicyDocument:
             Version: '2012-10-17'

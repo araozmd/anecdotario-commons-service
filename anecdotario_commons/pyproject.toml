@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "anecdotario-commons"
+version = "1.0.0"
+description = "Shared utilities and models for Anecdotario microservices"
+authors = [{name = "Anecdotario Team", email = "dev@anecdotario.com"}]
+license = {text = "MIT"}
+requires-python = ">=3.12"
+dependencies = [
+    "boto3>=1.34.0",
+    "pynamodb>=6.0.0",
+    "Pillow>=10.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "moto>=4.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["anecdotario_commons*"]
+
+[tool.setuptools.package-data]
+anecdotario_commons = ["*.py", "*.txt", "*.yaml", "*.yml"]

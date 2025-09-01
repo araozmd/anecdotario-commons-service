@@ -4,18 +4,14 @@ Search across users and organizations by nickname or full name
 """
 import json
 import os
-import sys
 
 # Add shared directory to path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-from decorators import validate_query_or_body, handle_exceptions, log_request
-from models.user_org import UserOrg
-from utils import create_response, create_error_response
-from constants import HTTPConstants
+from anecdotario_commons.decorators import validate_query_or_body, handle_exceptions, log_request
+from anecdotario_commons.models.user_org import UserOrg
+from anecdotario_commons.utils import create_response, create_error_response
+from anecdotario_commons.constants import HTTPConstants
 import functools
-
-
 def search_handler(func):
     """Custom composite decorator for search handler"""
     
@@ -27,8 +23,6 @@ def search_handler(func):
         return func(event, context)
     
     return wrapper
-
-
 @search_handler
 def lambda_handler(event, context):
     """

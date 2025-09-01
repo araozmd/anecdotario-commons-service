@@ -4,18 +4,14 @@ Updates user or organization data (nickname and user_type are immutable)
 """
 import json
 import os
-import sys
 
 # Add shared directory to path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-from decorators import standard_lambda_handler
-from services.service_container import get_service
-from utils import create_response
-from constants import HTTPConstants
-from exceptions import ValidationError, EntityNotFoundError
-
-
+from anecdotario_commons.decorators import standard_lambda_handler
+from anecdotario_commons.services.service_container import get_service
+from anecdotario_commons.utils import create_response
+from anecdotario_commons.constants import HTTPConstants
+from anecdotario_commons.exceptions import ValidationError, EntityNotFoundError
 @standard_lambda_handler(
     required_fields=['nickname'],  # Only nickname is required for updates
     entity_validation=False,

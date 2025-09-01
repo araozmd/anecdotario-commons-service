@@ -4,18 +4,14 @@ Entity-agnostic photo deletion service for users, orgs, campaigns, etc.
 """
 import json
 import os
-import sys
 
 # Add shared directory to path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-from decorators import flexible_lambda_handler
-from services.service_container import get_service
-from utils import create_response, create_error_response
-from constants import HTTPConstants
-from exceptions import ValidationError
-
-
+from anecdotario_commons.decorators import flexible_lambda_handler
+from anecdotario_commons.services.service_container import get_service
+from anecdotario_commons.utils import create_response, create_error_response
+from anecdotario_commons.constants import HTTPConstants
+from anecdotario_commons.exceptions import ValidationError
 @flexible_lambda_handler(log_requests=True)
 def lambda_handler(event, context):
     """

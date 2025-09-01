@@ -4,19 +4,15 @@ Regenerates presigned URLs for protected photo versions
 """
 import json
 import os
-import sys
 
 # Add shared directory to path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-from decorators import validate_query_or_body, handle_exceptions, cors_enabled, log_request
-from services.service_container import get_service
-from utils import create_response, create_error_response
-from constants import HTTPConstants, TimeConstants
-from exceptions import ValidationError
+from anecdotario_commons.decorators import validate_query_or_body, handle_exceptions, cors_enabled, log_request
+from anecdotario_commons.services.service_container import get_service
+from anecdotario_commons.utils import create_response, create_error_response
+from anecdotario_commons.constants import HTTPConstants, TimeConstants
+from anecdotario_commons.exceptions import ValidationError
 import functools
-
-
 def photo_refresh_handler(func):
     """Custom composite decorator for photo refresh handler"""
     
@@ -29,8 +25,6 @@ def photo_refresh_handler(func):
         return func(event, context)
     
     return wrapper
-
-
 @photo_refresh_handler
 def lambda_handler(event, context):
     """
@@ -174,8 +168,6 @@ def lambda_handler(event, context):
     except Exception as e:
         print(f"Unexpected error in photo refresh: {str(e)}")
         raise  # Let the decorator handle it
-
-
 def _parse_expires_in(expires_in_str):
     """
     Parse and validate expires_in parameter

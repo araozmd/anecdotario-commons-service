@@ -4,18 +4,14 @@ Validates nicknames for users, orgs, and other entities with detailed error hint
 """
 import json
 import os
-import sys
 
 # Add shared directory to path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-from decorators import validate_query_or_body, validate_entity_type, handle_exceptions, cors_enabled, log_request
-from validators.nickname import nickname_validator
-from utils import create_response, create_error_response
-from constants import HTTPConstants, EntityConstants
+from anecdotario_commons.decorators import validate_query_or_body, validate_entity_type, handle_exceptions, cors_enabled, log_request
+from anecdotario_commons.validators.nickname import nickname_validator
+from anecdotario_commons.utils import create_response, create_error_response
+from anecdotario_commons.constants import HTTPConstants, EntityConstants
 import functools
-
-
 def nickname_validation_handler(func):
     """Custom composite decorator for nickname validation handler"""
     
@@ -29,8 +25,6 @@ def nickname_validation_handler(func):
         return func(event, context)
     
     return wrapper
-
-
 @nickname_validation_handler
 def lambda_handler(event, context):
     """

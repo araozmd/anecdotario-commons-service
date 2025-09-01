@@ -4,17 +4,11 @@ Entity-agnostic photo upload service for users, orgs, campaigns, etc.
 """
 import json
 import os
-import sys
 
-# Add shared directory to path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
-
-from decorators import standard_lambda_handler
-from services.service_container import get_service
-from utils import create_response
-from constants import HTTPConstants
-
-
+from anecdotario_commons.decorators import standard_lambda_handler
+from anecdotario_commons.services.service_container import get_service
+from anecdotario_commons.utils import create_response
+from anecdotario_commons.constants import HTTPConstants
 @standard_lambda_handler(
     required_fields=['image', 'entity_type', 'entity_id', 'photo_type'],
     entity_validation=True,

@@ -38,20 +38,8 @@ Globals:
         PHOTO_TABLE_NAME: !Ref TableName
         PHOTO_BUCKET_NAME: !Ref BucketName
         PARAMETER_STORE_PREFIX: !Ref ParameterStorePrefix
-    Layers:
-      - !Ref CommonsServiceLayer
 
 Resources:
-  # Lambda Layer with shared dependencies
-  CommonsServiceLayer:
-    Type: AWS::Serverless::LayerVersion
-    Properties:
-      LayerName: !Sub anecdotario-commons-service-layer-${Environment}
-      Description: Shared dependencies for commons service
-      ContentUri: shared/
-      CompatibleRuntimes:
-        - python3.12
-      RetentionPolicy: Delete
 
   # API Gateway for search endpoints
   CommonsServiceApi:
@@ -549,12 +537,6 @@ Outputs:
     Export:
       Name: !Sub anecdotario-nickname-validate-arn-${Environment}
 
-  # Lambda Layer Export
-  CommonsServiceLayerArn:
-    Description: Commons Service Layer ARN for shared contracts and utilities
-    Value: !Ref CommonsServiceLayer
-    Export:
-      Name: !Sub anecdotario-commons-service-layer-arn-v2-${Environment}
   # User-Organization Functions
   UserOrgSearchFunctionArn:
     Description: User-Organization Search Lambda Function ARN
