@@ -46,15 +46,32 @@ phases:
       - python -m build
       - |
         if aws codeartifact describe-domain --domain anecdotario >/dev/null 2>&1; then
-          echo "CodeArtifact domain exists, configuring twine and publishing package..."
-          # Configure both pip and twine to use CodeArtifact
-          aws codeartifact login --tool pip --domain anecdotario --repository anecdotario-commons
-          aws codeartifact login --tool twine --domain anecdotario --repository anecdotario-commons
+          echo "CodeArtifact domain exists, publishing package directly with AWS CLI..."
           
-          # Now twine should work with proper authentication
-          export TWINE_REPOSITORY_URL=$(aws codeartifact get-repository-endpoint --domain anecdotario --repository anecdotario-commons --format pypi --query repositoryEndpoint --output text)
-          echo "Publishing to: $TWINE_REPOSITORY_URL"
-          python -m twine upload --repository-url $TWINE_REPOSITORY_URL dist/*
+          # Use AWS CLI to publish directly - no login needed in CodeBuild
+          for wheel in dist/*.whl; do
+            echo "Publishing $(basename $wheel)..."
+            aws codeartifact publish-package-version \
+              --domain anecdotario \
+              --repository anecdotario-commons \
+              --format pypi \
+              --package anecdotario-commons \
+              --package-version 1.0.0 \
+              --asset-content fileb://$wheel \
+              --asset-name $(basename $wheel)
+          done
+          
+          for tarball in dist/*.tar.gz; do
+            echo "Publishing $(basename $tarball)..."
+            aws codeartifact publish-package-version \
+              --domain anecdotario \
+              --repository anecdotario-commons \
+              --format pypi \
+              --package anecdotario-commons \
+              --package-version 1.0.0 \
+              --asset-content fileb://$tarball \
+              --asset-name $(basename $tarball)
+          done
         else
           echo "CodeArtifact domain not found, skipping package publish. This is expected on first deployment."
         fi
