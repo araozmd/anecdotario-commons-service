@@ -216,6 +216,9 @@ Resources:
                   - codeartifact:PublishPackageVersion
                   - codeartifact:PutPackageMetadata
                   - codeartifact:ReadFromRepository
+                  - codeartifact:ListPackages
+                  - codeartifact:ListPackageVersions
+                  - codeartifact:PutRepositoryPermissionsPolicy
                   - sts:GetServiceBearerToken
                 Resource: "*"
         - PolicyName: CodeBuildLogs
