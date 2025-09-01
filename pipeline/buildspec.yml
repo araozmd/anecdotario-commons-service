@@ -46,11 +46,12 @@ phases:
       - python -m build
       - |
         if aws codeartifact describe-domain --domain anecdotario >/dev/null 2>&1; then
-          echo "CodeArtifact domain exists, configuring pip and publishing package..."
-          # Configure pip to use CodeArtifact (this sets up authentication automatically)
+          echo "CodeArtifact domain exists, configuring twine and publishing package..."
+          # Configure both pip and twine to use CodeArtifact
           aws codeartifact login --tool pip --domain anecdotario --repository anecdotario-commons
+          aws codeartifact login --tool twine --domain anecdotario --repository anecdotario-commons
           
-          # Now pip/twine should work with proper authentication
+          # Now twine should work with proper authentication
           export TWINE_REPOSITORY_URL=$(aws codeartifact get-repository-endpoint --domain anecdotario --repository anecdotario-commons --format pypi --query repositoryEndpoint --output text)
           echo "Publishing to: $TWINE_REPOSITORY_URL"
           python -m twine upload --repository-url $TWINE_REPOSITORY_URL dist/*
