@@ -45,7 +45,7 @@ Resources:
   AnecdotarioCodeArtifactDomain:
     Type: AWS::CodeArtifact::Domain
     Properties:
-      DomainName: anecdotario
+      DomainName: anecdotario-artifacts
       
   # CodeArtifact Repository for commons package
   AnecdotarioCommonsRepository:

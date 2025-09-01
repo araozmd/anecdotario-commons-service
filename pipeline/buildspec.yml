@@ -45,22 +45,22 @@ phases:
       - pip install build twine
       - python -m build
       - |
-        if aws codeartifact describe-domain --domain anecdotario >/dev/null 2>&1; then
+        if aws codeartifact describe-domain --domain anecdotario-artifacts >/dev/null 2>&1; then
           echo "CodeArtifact domain exists, publishing package..."
-          aws codeartifact get-authorization-token --domain anecdotario --duration-seconds 0 --query authorizationToken --output text > /tmp/codeartifact-token
+          aws codeartifact get-authorization-token --domain anecdotario-artifacts --duration-seconds 0 --query authorizationToken --output text > /tmp/codeartifact-token
           export TWINE_USERNAME=aws
           export TWINE_PASSWORD=$(cat /tmp/codeartifact-token)
-          export TWINE_REPOSITORY_URL=$(aws codeartifact get-repository-endpoint --domain anecdotario --repository anecdotario-commons --format pypi --query repositoryEndpoint --output text)
+          export TWINE_REPOSITORY_URL=$(aws codeartifact get-repository-endpoint --domain anecdotario-artifacts --repository anecdotario-commons --format pypi --query repositoryEndpoint --output text)
           twine upload dist/*
         else
           echo "CodeArtifact domain not found, skipping package publish. This is expected on first deployment."
         fi
       - cd ..
       - |
-        if aws codeartifact describe-domain --domain anecdotario >/dev/null 2>&1; then
+        if aws codeartifact describe-domain --domain anecdotario-artifacts >/dev/null 2>&1; then
           echo "Configuring pip to use CodeArtifact for SAM build"
-          export CODEARTIFACT_REPO_URL=$(aws codeartifact get-repository-endpoint --domain anecdotario --repository anecdotario-commons --format pypi --query repositoryEndpoint --output text)
-          export CODEARTIFACT_TOKEN=$(aws codeartifact get-authorization-token --domain anecdotario --duration-seconds 0 --query authorizationToken --output text)
+          export CODEARTIFACT_REPO_URL=$(aws codeartifact get-repository-endpoint --domain anecdotario-artifacts --repository anecdotario-commons --format pypi --query repositoryEndpoint --output text)
+          export CODEARTIFACT_TOKEN=$(aws codeartifact get-authorization-token --domain anecdotario-artifacts --duration-seconds 0 --query authorizationToken --output text)
           pip config set global.extra-index-url "${CODEARTIFACT_REPO_URL}simple/"
           pip config set global.trusted-host $(echo $CODEARTIFACT_REPO_URL | sed 's|https://||' | cut -d'/' -f1)
           echo "Building SAM application with CodeArtifact access"
