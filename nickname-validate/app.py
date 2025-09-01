@@ -19,7 +19,7 @@ def nickname_validation_handler(func):
     @log_request()
     @cors_enabled(['GET', 'POST'])
     @handle_exceptions()
-    @validate_entity_type(EntityConstants.VALID_ENTITY_TYPES)
+    @validate_entity_type(EntityConstants.NICKNAME_ENTITY_TYPES)
     @validate_query_or_body([])  # No required fields - conditional validation
     def wrapper(event, context):
         return func(event, context)

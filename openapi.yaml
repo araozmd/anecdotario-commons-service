@@ -2,11 +2,11 @@ openapi: 3.0.3
 info:
   title: Anecdotario Commons Service API
   description: |
-    Centralized shared functionality service for all Anecdotario entities (users, organizations, campaigns).
+    Centralized shared functionality service for all Anecdotario entities (users, organizations).
     
     **Core Capabilities**:
     - **Photo Management**: Multi-version photo processing (thumbnail, standard, high-res) with S3 storage
-    - **Nickname Validation**: Centralized uniqueness validation across all entity types
+    - **Nickname Validation**: Centralized uniqueness validation for users and organizations (accessed via Lambda invocation)
     - **Entity Search**: Unified search across users and organizations
     - **User-Organization Management**: CRUD operations for user and organization entities
     
@@ -176,64 +176,6 @@ components:
               type: number
               description: Query execution time in milliseconds
           
-    NicknameValidationResponse:
-      type: object
-      required:
-        - valid
-        - available
-      properties:
-        valid:
-          type: boolean
-          description: Whether the nickname passes format validation
-        available:
-          type: boolean
-          description: Whether the nickname is available for use (not taken)
-        nickname:
-          type: string
-          description: Original nickname that was validated
-        normalized:
-          type: string
-          description: Normalized (lowercase) version used for uniqueness checking
-        entity_type:
-          type: string
-          description: Entity type this validation was performed for
-          enum:
-            - user
-            - org
-            - campaign
-        validation_errors:
-          type: array
-          items:
-            type: string
-          description: List of validation errors (if any)
-        hints:
-          type: array
-          items:
-            type: string
-          description: User-friendly suggestions for fixing invalid nicknames
-        reserved_reason:
-          type: string
-          description: Reason if nickname is reserved
-          enum:
-            - system_reserved
-            - api_reserved
-            - admin_reserved
-            - platform_reserved
-        uniqueness_check:
-          type: object
-          properties:
-            checked_entity_types:
-              type: array
-              items:
-                type: string
-              description: Entity types checked for uniqueness
-            conflict_found:
-              type: boolean
-              description: Whether a conflict was found
-            conflict_entity_type:
-              type: string
-              description: Entity type that conflicts (if any)
-              
     PhotoUploadResponse:
       type: object
       required:
@@ -618,57 +560,6 @@ paths:
         '500':
           $ref: '#/components/responses/ServerError'
           
-  /validate/nickname:
-    get:
-      tags:
-        - Validation
-      summary: Validate nickname availability and format
-      description: |
-        Validates nickname format and checks uniqueness across all entity types.
-        
-        **Validation Rules**:
-        - Length: 3-30 characters
-        - Characters: a-z, 0-9, single underscores only
-        - Cannot start/end with underscore
-        - No consecutive underscores
-        - Case-insensitive uniqueness check
-        - Reserved word checking
-        
-        **Cross-Entity Uniqueness**: Ensures uniqueness between users, organizations, and campaigns.
-      operationId: validateNickname
-      parameters:
-        - name: nickname
-          in: query
-          required: true
-          description: Nickname to validate
-          schema:
-            type: string
-            minLength: 1
-            maxLength: 50
-          example: "my_nickname_2024"
-        - name: entity_type
-          in: query
-          description: Entity type for context-specific validation
-          schema:
-            type: string
-            enum:
-              - user
-              - org
-              - campaign
-            default: user
-      responses:
-        '200':
-          description: Nickname validation result
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/NicknameValidationResponse'
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
-        '500':
-          $ref: '#/components/responses/ServerError'
 
 tags:
   - name: Search
@@ -677,13 +568,6 @@ tags:
       
       Unified search across users and organizations with intelligent ranking and filtering.
       Primarily used by frontend applications for user/org discovery and selection.
-      
-  - name: Validation  
-    description: |
-      **Validation Services**
-      
-      Centralized validation logic for nicknames and other data with cross-service consistency.
-      Used by all microservices to ensure data integrity and uniqueness constraints.
       
   - name: Internal
     description: |
