@@ -46,7 +46,6 @@ Resources:
     Type: AWS::CodeArtifact::Domain
     Properties:
       DomainName: anecdotario
-      AssetSizeLimit: 2147483648  # 2GB limit
       
   # CodeArtifact Repository for commons package
   AnecdotarioCommonsRepository:
