@@ -1,0 +1,591 @@
+openapi: 3.0.3
+info:
+  title: Anecdotario Commons Service API
+  description: |
+    Commons service providing shared functionality across the Anecdotario platform.
+    
+    **Key Features:**
+    - User and organization search with pagination
+    - Nickname validation and uniqueness checking
+    - Photo upload, processing, and management
+    - Shared utilities and contracts for other services
+    
+    **Architecture:**
+    - Built on AWS Lambda with Python 3.12
+    - API Gateway for REST endpoints
+    - DynamoDB unified storage for users and organizations
+    - S3 multi-version photo processing and storage
+    - Lambda Layer exports for service integration
+    
+    **Search Capabilities:**
+    - Case-insensitive search across nicknames and full names
+    - Relevance-based result ordering
+    - Token-based pagination for large result sets
+    - Cross-entity search (users, organizations, campaigns)
+    - Performance optimized with configurable limits
+  version: 1.0.0
+  contact:
+    name: Anecdotario Backend Team
+  license:
+    name: MIT
+
+servers:
+  - url: https://1hheux7spg.execute-api.us-east-1.amazonaws.com/prod
+    description: Production environment
+  - url: https://1hheux7spg.execute-api.us-east-1.amazonaws.com/staging
+    description: Staging environment  
+  - url: https://1hheux7spg.execute-api.us-east-1.amazonaws.com/dev
+    description: Development environment
+
+tags:
+  - name: Search
+    description: |
+      User and organization search functionality with advanced features:
+      
+      - **Cross-entity search**: Find users and organizations in one query
+      - **Smart matching**: Case-insensitive partial matching on nickname and full name
+      - **Relevance sorting**: Results ordered by match quality and relevance
+      - **Efficient pagination**: Token-based stateless pagination for large datasets
+      - **Active filtering**: Only returns entities with active status
+      
+      Perfect for user discovery, autocomplete, and administrative interfaces.
+
+paths:
+  /search:
+    get:
+      tags:
+        - Search
+      summary: Search users and organizations
+      description: |
+        🔍 **Search for users and organizations by nickname or full name**
+        
+        **How it works:**
+        - Searches both `nickname` and `full_name` fields simultaneously
+        - Case-insensitive matching (finds "john" in "Johnny" and "JOHN DOE")
+        - Returns results ordered by relevance (nickname matches first)
+        - Only includes active entities (`status = 'active'`)
+        
+        **Performance:**
+        - Typical response time: 1-3 seconds
+        - Uses DynamoDB scan (expensive for very large datasets)
+        - Recommended: 10-20 results per page for UI, up to 50 for bulk operations
+        
+        **Pagination:**
+        - Stateless token-based pagination
+        - Use `next_page_token` from response to get next page
+        - Tokens are Base64-encoded and URL-safe
+        
+        **Examples:**
+        ```
+        # Find first 10 matches for "john"
+        GET /search?q=john&limit=10
+        
+        # Get next page of results
+        GET /search?q=john&limit=10&page_token=eyJuaWNrbmFtZSI6ImpvaG4ifQ
+        
+        # Search organizations with "tech"
+        GET /search?q=tech&limit=5
+        ```
+      operationId: searchEntities
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: |
+            **Search query** to match against nickname or full name.
+            
+            - Minimum 2 characters required
+            - Maximum 100 characters allowed
+            - Case-insensitive matching
+            - Partial matching (contains, not exact)
+            
+            **Examples:** `john`, `tech`, `startup`, `doe`
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+            example: john
+        - name: limit
+          in: query
+          required: false
+          description: |
+            **Maximum results per page**
+            
+            - Default: 20 results
+            - Minimum: 1 result  
+            - Maximum: 50 results
+            - Recommended: 10-20 for UI responsiveness
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+            example: 10
+        - name: page_token
+          in: query
+          required: false
+          description: |
+            **Pagination token** from previous search response.
+            
+            - Get this from `next_page_token` field in previous response
+            - Base64-encoded JSON containing pagination state
+            - URL-safe format
+            - Omit for first page of results
+          schema:
+            type: string
+            pattern: '^[A-Za-z0-9+/]+=*$'
+            example: eyJuaWNrbmFtZSI6ImpvaG5fZG9lIn0=
+      responses:
+        '200':
+          description: ✅ **Search completed successfully**
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - query
+                  - limit
+                  - total_found
+                  - has_more
+                  - results
+                  - pagination
+                  - search_metadata
+                properties:
+                  success:
+                    type: boolean
+                    description: Always `true` for successful responses
+                    example: true
+                  query:
+                    type: string
+                    description: The search query that was executed
+                    example: john
+                  limit:
+                    type: integer
+                    description: Requested results limit for this page
+                    example: 10
+                  total_found:
+                    type: integer
+                    description: Number of results returned in this page (≤ limit)
+                    example: 3
+                  has_more:
+                    type: boolean
+                    description: `true` if more results are available on subsequent pages
+                    example: false
+                  next_page_token:
+                    type: string
+                    nullable: true
+                    description: |
+                      Token for retrieving the next page of results.
+                      `null` if no more pages are available.
+                    example: null
+                  results:
+                    type: array
+                    description: Array of matching users and organizations
+                    items:
+                      $ref: '#/components/schemas/SearchResult'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationInfo'
+                  search_metadata:
+                    $ref: '#/components/schemas/SearchMetadata'
+              examples:
+                basic_search:
+                  summary: Basic search with results
+                  description: Searching for "john" returns 3 matches
+                  value:
+                    success: true
+                    query: john
+                    limit: 10
+                    total_found: 3
+                    has_more: false
+                    next_page_token: null
+                    results:
+                      - nickname: john_doe
+                        full_name: John Doe
+                        user_type: user
+                        is_certified: false
+                        avatar_thumbnail_url: https://anecdotario-photos.s3.amazonaws.com/users/john_doe/profile/thumbnail_20241201_abc123.jpg
+                        posts_count: 15
+                        followers_count: 42
+                        following_count: 38
+                        status: active
+                        created_at: "2024-01-15T10:30:00Z"
+                        match_type: both
+                        match_position: 0
+                      - nickname: johnny_test
+                        full_name: Johnny Test
+                        user_type: user
+                        is_certified: true
+                        avatar_thumbnail_url: https://anecdotario-photos.s3.amazonaws.com/users/johnny_test/profile/thumbnail_20241201_def456.jpg
+                        posts_count: 8
+                        followers_count: 156
+                        following_count: 89
+                        status: active
+                        created_at: "2024-02-20T14:45:00Z"
+                        match_type: both
+                        match_position: 0
+                      - nickname: smith_john
+                        full_name: Smith Johnson
+                        user_type: user
+                        is_certified: false
+                        avatar_thumbnail_url: null
+                        posts_count: 3
+                        followers_count: 12
+                        following_count: 25
+                        status: active
+                        created_at: "2024-03-10T09:15:00Z"
+                        match_type: nickname
+                        match_position: 6
+                    pagination:
+                      current_page_size: 3
+                      requested_limit: 10
+                      has_more_pages: false
+                      items_scanned: 6
+                    search_metadata:
+                      search_type: contains_match
+                      fields_searched: [nickname, full_name]
+                      entity_types: [user, organization]
+                      status_filter: active_only
+                      sorting: relevance_based
+                paginated_search:
+                  summary: Paginated search results
+                  description: First page of "tech" search with more results available
+                  value:
+                    success: true
+                    query: tech
+                    limit: 5
+                    total_found: 5
+                    has_more: true
+                    next_page_token: eyJuaWNrbmFtZSI6InRlY2hfc3RhcnR1cCJ9
+                    results:
+                      - nickname: tech_corp
+                        full_name: Tech Corporation
+                        user_type: organization
+                        is_certified: true
+                        avatar_thumbnail_url: https://anecdotario-photos.s3.amazonaws.com/orgs/tech_corp/logo/thumbnail_20241201_ghi789.jpg
+                        posts_count: 25
+                        followers_count: 1250
+                        following_count: 450
+                        status: active
+                        created_at: "2023-06-01T12:00:00Z"
+                        match_type: both
+                        match_position: 0
+                      - nickname: biotech_startup
+                        full_name: BioTech Innovations
+                        user_type: organization
+                        is_certified: false
+                        avatar_thumbnail_url: null
+                        posts_count: 12
+                        followers_count: 89
+                        following_count: 156
+                        status: active
+                        created_at: "2024-03-15T08:20:00Z"
+                        match_type: nickname
+                        match_position: 3
+                    pagination:
+                      current_page_size: 5
+                      requested_limit: 5
+                      has_more_pages: true
+                      items_scanned: 10
+                    search_metadata:
+                      search_type: contains_match
+                      fields_searched: [nickname, full_name]
+                      entity_types: [user, organization]
+                      status_filter: active_only
+                      sorting: relevance_based
+                empty_results:
+                  summary: No results found
+                  description: Search query doesn't match any active entities
+                  value:
+                    success: true
+                    query: nonexistentuser
+                    limit: 20
+                    total_found: 0
+                    has_more: false
+                    next_page_token: null
+                    results: []
+                    pagination:
+                      current_page_size: 0
+                      requested_limit: 20
+                      has_more_pages: false
+                      items_scanned: 15
+                    search_metadata:
+                      search_type: contains_match
+                      fields_searched: [nickname, full_name]
+                      entity_types: [user, organization]
+                      status_filter: active_only
+                      sorting: relevance_based
+        '400':
+          description: ❌ **Bad Request** - Invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_query:
+                  summary: Missing required query parameter
+                  value:
+                    success: false
+                    error: 'Query parameter "q" is required'
+                    details:
+                      usage: 'GET /search?q=john&limit=10&page_token=eyJuaWNrbmFtZSI6ImpvaG4ifQ'
+                      requirements: Query must be at least 2 characters
+                query_too_short:
+                  summary: Query too short
+                  value:
+                    success: false
+                    error: Query must be at least 2 characters long
+                    details:
+                      provided_query: j
+                      min_length: 2
+                invalid_page_token:
+                  summary: Invalid pagination token
+                  value:
+                    success: false
+                    error: Invalid page_token parameter
+                    details:
+                      error: Page token must be a valid base64-encoded JSON
+                      details: Invalid character in token
+        '500':
+          description: ❌ **Internal Server Error** - Search operation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                search_failure:
+                  summary: Database or processing error
+                  value:
+                    success: false
+                    error: Search operation failed
+                    details:
+                      error_details: Database connection timeout
+                      query: john
+                      limit: 10
+
+components:
+  schemas:
+    SearchResult:
+      type: object
+      title: Search Result
+      description: |
+        A user or organization entity that matches the search query.
+        
+        **Key Fields:**
+        - `nickname`: Unique identifier (used in URLs and mentions)
+        - `full_name`: Display name shown in UI
+        - `user_type`: Either "user" (individual) or "organization" (business/group)
+        - `match_type`: Shows where the search query was found
+        - `match_position`: Used for relevance sorting (lower = more relevant)
+      required:
+        - nickname
+        - full_name
+        - user_type
+        - status
+        - created_at
+        - match_type
+        - match_position
+      properties:
+        nickname:
+          type: string
+          description: |
+            **Unique nickname** - primary identifier for the entity.
+            
+            - Used in URLs: `/users/john_doe` or `/orgs/tech_corp`
+            - Used for mentions: `@john_doe`
+            - Always lowercase, contains only a-z, 0-9, and underscores
+          example: john_doe
+        full_name:
+          type: string
+          description: |
+            **Full display name** shown in the UI.
+            
+            - For users: "John Doe", "Jane Smith"
+            - For organizations: "Tech Corp", "Startup Inc"
+            - Can contain any characters and mixed case
+          example: John Doe
+        user_type:
+          type: string
+          enum: [user, organization]
+          description: |
+            **Entity type:**
+            - `user`: Individual person account
+            - `organization`: Business, group, or institutional account
+          example: user
+        is_certified:
+          type: boolean
+          description: |
+            **Verification status** - whether the entity is verified/certified.
+            
+            - Certified entities get a checkmark badge in UI
+            - Higher trust and visibility in search results
+          example: false
+        avatar_thumbnail_url:
+          type: string
+          nullable: true
+          format: uri
+          description: |
+            **Avatar thumbnail URL** (150x150px, public access).
+            
+            - `null` if no avatar is set
+            - Points to S3 public URL for thumbnails
+            - Larger versions available via photo service
+          example: https://anecdotario-photos.s3.amazonaws.com/users/john_doe/profile/thumbnail_20241201_abc123.jpg
+        posts_count:
+          type: integer
+          minimum: 0
+          description: Total number of posts/stories published by this entity
+          example: 15
+        followers_count:
+          type: integer
+          minimum: 0
+          description: Number of users/organizations following this entity
+          example: 42
+        following_count:
+          type: integer
+          minimum: 0
+          description: Number of users/organizations this entity follows
+          example: 38
+        status:
+          type: string
+          enum: [active, inactive, suspended]
+          description: |
+            **Account status** (only `active` entities are returned in search).
+            
+            - `active`: Normal, visible account
+            - `inactive`: Temporarily disabled
+            - `suspended`: Moderation action taken
+          example: active
+        created_at:
+          type: string
+          format: date-time
+          description: Account creation timestamp (ISO 8601 format)
+          example: "2024-01-15T10:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Last profile update timestamp (ISO 8601 format)
+          example: "2024-11-28T15:45:00Z"
+        match_type:
+          type: string
+          enum: [nickname, full_name, both]
+          description: |
+            **Where the search query was found:**
+            
+            - `nickname`: Found only in the nickname field
+            - `full_name`: Found only in the full name field  
+            - `both`: Found in both nickname and full name
+            
+            Used for relevance sorting and highlighting in UI.
+          example: both
+        match_position:
+          type: integer
+          minimum: 0
+          description: |
+            **Character position** where the match starts in the matched field.
+            
+            - Position 0 = match at the beginning (highest relevance)
+            - Higher positions = lower relevance
+            - Used for sorting results by relevance
+          example: 0
+
+    PaginationInfo:
+      type: object
+      title: Pagination Information
+      description: Metadata about the current page and pagination state
+      required:
+        - current_page_size
+        - requested_limit
+        - has_more_pages
+        - items_scanned
+      properties:
+        current_page_size:
+          type: integer
+          minimum: 0
+          description: Actual number of results returned in this response
+          example: 3
+        requested_limit:
+          type: integer
+          minimum: 1
+          maximum: 50
+          description: The limit parameter that was requested
+          example: 10
+        has_more_pages:
+          type: boolean
+          description: Same as root-level `has_more` field
+          example: false
+        items_scanned:
+          type: integer
+          minimum: 0
+          description: |
+            Number of database items that were examined to produce these results.
+            
+            - Higher than `current_page_size` due to filtering
+            - Useful for understanding query performance
+          example: 6
+
+    SearchMetadata:
+      type: object
+      title: Search Operation Metadata
+      description: Information about how the search was performed
+      required:
+        - search_type
+        - fields_searched
+        - entity_types
+        - status_filter
+        - sorting
+      properties:
+        search_type:
+          type: string
+          enum: [contains_match]
+          description: The type of search algorithm used
+          example: contains_match
+        fields_searched:
+          type: array
+          items:
+            type: string
+          description: Database fields that were searched
+          example: [nickname, full_name]
+        entity_types:
+          type: array
+          items:
+            type: string
+          description: Types of entities included in the search
+          example: [user, organization]
+        status_filter:
+          type: string
+          description: Status filtering that was applied
+          example: active_only
+        sorting:
+          type: string
+          description: The sorting strategy used for results
+          example: relevance_based
+
+    ErrorResponse:
+      type: object
+      title: Error Response
+      description: Standard error response format used across the API
+      required:
+        - success
+        - error
+      properties:
+        success:
+          type: boolean
+          description: Always `false` for error responses
+          example: false
+        error:
+          type: string
+          description: Human-readable error message describing what went wrong
+          example: 'Query parameter "q" is required'
+        details:
+          type: object
+          description: |
+            Additional context and debugging information about the error.
+            
+            - May include suggestions for fixing the request
+            - Contains details helpful for troubleshooting
+            - Structure varies by error type
+          additionalProperties: true
+          example:
+            usage: 'GET /search?q=john&limit=10'
+            requirements: Query must be at least 2 characters
