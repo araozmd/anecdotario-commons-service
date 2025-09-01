@@ -215,10 +215,9 @@ Resources:
                   - codeartifact:GetRepositoryEndpoint
                   - codeartifact:PublishPackageVersion
                   - codeartifact:PutPackageMetadata
+                  - codeartifact:ReadFromRepository
                   - sts:GetServiceBearerToken
-                Resource:
-                  - !GetAtt AnecdotarioCodeArtifactDomain.Arn
-                  - !GetAtt AnecdotarioCommonsRepository.Arn
+                Resource: "*"
         - PolicyName: CodeBuildLogs
           PolicyDocument:
             Version: '2012-10-17'
