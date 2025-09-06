@@ -7,12 +7,16 @@ import os
 
 # Add shared directory to path
 
-from anecdotario_commons.decorators import flexible_lambda_handler
+from anecdotario_commons.decorators import direct_lambda_handler
 from anecdotario_commons.services.service_container import get_service
 from anecdotario_commons.utils import create_response, create_error_response
 from anecdotario_commons.constants import HTTPConstants
 from anecdotario_commons.exceptions import ValidationError
-@flexible_lambda_handler(log_requests=True)
+@direct_lambda_handler(
+    required_fields=[],  # Conditional validation based on operation mode
+    entity_validation=False,  # Manual validation based on mode
+    log_requests=True
+)
 def lambda_handler(event, context):
     """
     Photo deletion handler supporting two operation modes
@@ -23,8 +27,8 @@ def lambda_handler(event, context):
     Mode 2 - Delete entity photos:
     {"entity_type": "user", "entity_id": "john", "photo_type": "profile"}
     """
-    # Get parsed body from decorator
-    body = event.get('parsed_body', {})
+    # Get parameters directly from payload (direct invocation)
+    body = event
     
     # Determine deletion mode
     photo_id = body.get('photo_id')

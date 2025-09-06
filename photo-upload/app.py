@@ -5,15 +5,15 @@ Entity-agnostic photo upload service for users, orgs, campaigns, etc.
 import json
 import os
 
-from anecdotario_commons.decorators import standard_lambda_handler
+from anecdotario_commons.decorators import direct_lambda_handler
 from anecdotario_commons.services.service_container import get_service
 from anecdotario_commons.utils import create_response
 from anecdotario_commons.constants import HTTPConstants
-@standard_lambda_handler(
+
+@direct_lambda_handler(
     required_fields=['image', 'entity_type', 'entity_id', 'photo_type'],
     entity_validation=True,
     photo_type_validation=True,
-    support_query_params=False,
     log_requests=True
 )
 def lambda_handler(event, context):
@@ -31,8 +31,8 @@ def lambda_handler(event, context):
         "upload_source": "user-service|org-service"
     }
     """
-    # Extract validated parameters (decorators guarantee these exist and are valid)
-    params = event['parsed_body']
+    # Extract validated parameters directly from payload (decorators guarantee these exist and are valid)
+    params = event
     
     image_data = params['image']
     entity_type = params['entity_type']

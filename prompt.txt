@@ -1,0 +1,216 @@
+# Migration Prompt for Other Anecdotario Services
+
+## Context
+The Anecdotario Commons Service has been successfully refactored to use a separate `anecdotario-commons-library` repository with proper microservices architecture. All shared functionality is now available as an external Python package.
+
+## Task: Migrate Your Service to Use Commons Functions
+
+### 1. Update Service Architecture
+
+Replace any embedded shared code with Lambda invocations to the commons service functions:
+
+**Photo Operations:**
+```python
+import boto3
+import json
+
+lambda_client = boto3.client('lambda')
+
+# Photo upload
+response = lambda_client.invoke(
+    FunctionName='anecdotario-photo-upload-dev',  # Change 'dev' to your environment
+    Payload=json.dumps({
+        'image': 'data:image/jpeg;base64,...',
+        'entity_type': 'user',  # or 'org', 'campaign'
+        'entity_id': user_nickname,  # or org_id, campaign_id
+        'photo_type': 'profile',  # or 'logo', 'banner', 'gallery'
+        'uploaded_by': user_id,
+        'upload_source': 'your-service-name'
+    })
+)
+
+result = json.loads(response['Payload'].read())
+if response['StatusCode'] == 200:
+    photo_data = json.loads(result['body'])
+    thumbnail_url = photo_data['thumbnail_url']    # Public URL
+    standard_url = photo_data['standard_url']      # Presigned URL
+    high_res_url = photo_data['high_res_url']      # Presigned URL
+
+# Photo refresh (generate new presigned URLs)
+response = lambda_client.invoke(
+    FunctionName='anecdotario-photo-refresh-dev',
+    Payload=json.dumps({
+        'entity_type': 'user',
+        'entity_id': user_nickname,
+        'photo_type': 'profile'
+    })
+)
+
+# Photo delete
+response = lambda_client.invoke(
+    FunctionName='anecdotario-photo-delete-dev',
+    Payload=json.dumps({
+        'entity_type': 'user',
+        'entity_id': user_nickname,
+        'photo_type': 'profile'
+    })
+)
+```
+
+**Nickname Validation:**
+```python
+# Nickname validation
+response = lambda_client.invoke(
+    FunctionName='anecdotario-nickname-validate-dev',
+    Payload=json.dumps({
+        'nickname': proposed_nickname,
+        'entity_type': 'user'  # or 'org'
+    })
+)
+
+validation_result = json.loads(response['Payload'].read())
+if validation_result.get('valid'):
+    # Nickname is valid
+    pass
+else:
+    error_hints = validation_result.get('hints', [])  # User-friendly error messages
+```
+
+### 2. Required IAM Permissions
+
+Add these permissions to your Lambda execution roles:
+
+```yaml
+# In your SAM template.yaml
+Policies:
+  - PolicyName: CommonsServiceInvoke
+    PolicyDocument:
+      Version: '2012-10-17'
+      Statement:
+        - Effect: Allow
+          Action:
+            - lambda:InvokeFunction
+          Resource:
+            - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:anecdotario-photo-upload-${Environment}'
+            - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:anecdotario-photo-delete-${Environment}'
+            - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:anecdotario-photo-refresh-${Environment}'
+            - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:anecdotario-nickname-validate-${Environment}'
+            - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:anecdotario-user-org-search-${Environment}'
+            - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:anecdotario-user-org-create-${Environment}'
+```
+
+### 3. Remove Deprecated Code
+
+Delete these from your service (they're now handled by commons service):
+- Any embedded photo processing logic
+- Image resizing/cropping code  
+- S3 direct upload/delete operations for photos
+- Nickname validation logic
+- Shared utility functions that duplicate commons functionality
+
+### 4. Update Dependencies
+
+**If using anecdotario-commons library directly:**
+```txt
+# In requirements.txt
+anecdotario-commons==1.0.3
+```
+
+**If only using Lambda invocations (recommended):**
+- Remove any anecdotario-commons dependencies
+- Use only boto3 for Lambda invocations
+
+### 5. Environment-Specific Function Names
+
+Function names follow this pattern:
+- Development: `anecdotario-{function}-dev`
+- Staging: `anecdotario-{function}-staging`  
+- Production: `anecdotario-{function}-prod`
+
+Available functions:
+- `photo-upload`
+- `photo-delete`
+- `photo-refresh`
+- `nickname-validate`
+- `user-org-search`
+- `user-org-create`
+
+### 6. Error Handling Pattern
+
+```python
+def invoke_commons_function(function_name, payload):
+    try:
+        response = lambda_client.invoke(
+            FunctionName=function_name,
+            Payload=json.dumps(payload)
+        )
+        
+        if response['StatusCode'] != 200:
+            raise Exception(f"Lambda invocation failed with status {response['StatusCode']}")
+            
+        result = json.loads(response['Payload'].read())
+        
+        # Check for Lambda function errors
+        if 'errorMessage' in result:
+            raise Exception(f"Commons function error: {result['errorMessage']}")
+            
+        return result
+        
+    except Exception as e:
+        logger.error(f"Failed to invoke {function_name}: {str(e)}")
+        raise
+```
+
+### 7. Testing
+
+Update your tests to mock Lambda invocations:
+
+```python
+@patch('boto3.client')
+def test_photo_upload(mock_boto_client):
+    mock_lambda = Mock()
+    mock_boto_client.return_value = mock_lambda
+    
+    mock_lambda.invoke.return_value = {
+        'StatusCode': 200,
+        'Payload': Mock(read=lambda: json.dumps({
+            'body': json.dumps({
+                'thumbnail_url': 'https://example.com/thumb.jpg',
+                'standard_url': 'https://example.com/standard.jpg',
+                'high_res_url': 'https://example.com/high.jpg'
+            })
+        }))
+    }
+    
+    # Your test logic here
+```
+
+### 8. Benefits of This Migration
+
+- **Consistency**: All photo operations use the same processing pipeline
+- **Maintenance**: Shared logic updated in one place
+- **Performance**: Optimized image processing with proper caching
+- **Security**: Centralized access control and validation
+- **Scalability**: Independent scaling of commons functions
+
+### 9. Migration Checklist
+
+- [ ] Add Lambda invocation permissions to IAM roles
+- [ ] Replace photo upload/delete logic with Lambda invocations
+- [ ] Replace nickname validation with Lambda invocations  
+- [ ] Update error handling for Lambda invocation failures
+- [ ] Remove deprecated shared code and dependencies
+- [ ] Update tests to mock Lambda invocations
+- [ ] Test in development environment
+- [ ] Deploy to staging for integration testing
+- [ ] Deploy to production after validation
+
+### 10. Support
+
+If you encounter issues during migration:
+1. Check CloudWatch logs for commons service functions
+2. Verify IAM permissions for Lambda invocations
+3. Ensure correct function names for your environment
+4. Validate payload format matches commons service contracts
+
+The commons service is now deployed and available in all environments (dev/staging/prod).

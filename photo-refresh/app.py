@@ -7,25 +7,16 @@ import os
 
 # Add shared directory to path
 
-from anecdotario_commons.decorators import validate_query_or_body, handle_exceptions, cors_enabled, log_request
+from anecdotario_commons.decorators import direct_lambda_handler
 from anecdotario_commons.services.service_container import get_service
 from anecdotario_commons.utils import create_response, create_error_response
 from anecdotario_commons.constants import HTTPConstants, TimeConstants
 from anecdotario_commons.exceptions import ValidationError
-import functools
-def photo_refresh_handler(func):
-    """Custom composite decorator for photo refresh handler"""
-    
-    @functools.wraps(func)
-    @log_request()
-    @cors_enabled(['GET', 'POST'])
-    @handle_exceptions()
-    @validate_query_or_body([])  # No required fields - conditional validation
-    def wrapper(event, context):
-        return func(event, context)
-    
-    return wrapper
-@photo_refresh_handler
+@direct_lambda_handler(
+    required_fields=[],  # Conditional validation based on operation mode
+    entity_validation=False,  # Manual validation based on mode
+    log_requests=True
+)
 def lambda_handler(event, context):
     """
     Photo URL refresh handler supporting three operation modes
@@ -39,8 +30,8 @@ def lambda_handler(event, context):
     Mode 3 - Get current photo:
     {"entity_type": "user", "entity_id": "john", "photo_type": "profile", "get_current": true}
     """
-    # Get parameters from query or body (handled by decorator)
-    params = event.get('parsed_params', {})
+    # Get parameters directly from payload (direct invocation)
+    params = event
     
     # Extract parameters
     photo_id = params.get('photo_id')
