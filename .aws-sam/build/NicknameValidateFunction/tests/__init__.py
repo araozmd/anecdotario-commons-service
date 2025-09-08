@@ -1,1 +1,0 @@
-# Nickname validation tests

@@ -1,1 +1,0 @@
-# Processors module for photo service
