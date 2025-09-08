@@ -10,6 +10,7 @@ from anecdotario_commons.services.service_container import get_service
 from anecdotario_commons.utils import create_response
 from anecdotario_commons.constants import HTTPConstants
 
+
 @direct_lambda_handler(
     required_fields=['image', 'entity_type', 'entity_id', 'photo_type'],
     entity_validation=True,
@@ -76,3 +77,4 @@ def lambda_handler(event, context):
         json.dumps(response_data),
         event
     )
+
