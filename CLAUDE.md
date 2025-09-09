@@ -343,3 +343,5 @@ DenyDirectPublicAccess:
 ---
 
 **Note**: This service is designed for internal microservice communication. Direct frontend access is not supported - all invocation should be through other Anecdotario services.
+
+- Pipeline arn is arn:aws:codepipeline:us-east-1:871046834194:anecdotario-commons-pipeline

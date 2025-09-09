@@ -2,5 +2,5 @@ pynamodb>=6.0.0
 
 Pillow>=10.0.0
 
-anecdotario-commons==1.0.6
+anecdotario-commons==1.0.5
 
