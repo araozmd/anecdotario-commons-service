@@ -4,19 +4,20 @@ Updates user or organization data (nickname and user_type are immutable)
 """
 import json
 import os
+import sys
 
 # Add shared directory to path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-from anecdotario_commons.decorators import standard_lambda_handler
-from anecdotario_commons.services.service_container import get_service
-from anecdotario_commons.utils import create_response
-from anecdotario_commons.constants import HTTPConstants
-from anecdotario_commons.exceptions import ValidationError, EntityNotFoundError
-@standard_lambda_handler(
+from shared.decorators import direct_lambda_handler
+from shared.services.service_container import get_service
+from shared.utils import create_response
+from shared.constants import HTTPConstants
+from shared.exceptions import ValidationError, EntityNotFoundError
+@direct_lambda_handler(
     required_fields=['nickname'],  # Only nickname is required for updates
     entity_validation=False,
     photo_type_validation=False,
-    support_query_params=False,
     log_requests=True
 )
 def lambda_handler(event, context):
@@ -47,7 +48,7 @@ def lambda_handler(event, context):
     Note: nickname and user_type cannot be changed after creation
     """
     # Extract validated parameters
-    params = event['parsed_body']
+    params = event
     
     nickname = params['nickname']
     
@@ -68,73 +69,49 @@ def lambda_handler(event, context):
     user_org_service = get_service('user_org_service')
     
     try:
-        result = None
-        operations_performed = []
+        # Prepare updates dictionary with only non-None values
+        updates = {}
+        if full_name is not None:
+            updates['full_name'] = full_name
+        if avatar_thumbnail_url is not None:
+            updates['avatar_thumbnail_url'] = avatar_thumbnail_url
+        if email is not None:
+            updates['email'] = email
+        if phone is not None:
+            updates['phone'] = phone
+        if website is not None:
+            updates['website'] = website
         
-        # Standard field updates
-        if any([full_name is not None, avatar_thumbnail_url is not None, 
-               email is not None, phone is not None, website is not None]):
-            
-            result = user_org_service.update_entity(
-                nickname=nickname,
-                full_name=full_name,
-                avatar_thumbnail_url=avatar_thumbnail_url,
-                email=email,
-                phone=phone,
-                website=website
-            )
-            operations_performed.append('basic_info_updated')
-        
-        # Certification update
+        # Handle certification
         if certification:
-            is_certified = certification.get('is_certified', False)
-            certified_by = certification.get('certified_by')
-            
-            cert_result = user_org_service.set_certification_status(
-                nickname=nickname,
-                is_certified=is_certified,
-                certified_by=certified_by
+            updates['is_certified'] = certification.get('is_certified', False)
+        
+        if not updates:
+            return create_response(
+                HTTPConstants.BAD_REQUEST,
+                json.dumps({
+                    'success': False,
+                    'error': 'No fields provided for update',
+                    'updatable_fields': ['full_name', 'avatar_thumbnail_url', 'email', 'phone', 'website', 'certification']
+                }),
+                event
             )
-            
-            if result:
-                result.update(cert_result)
-            else:
-                result = cert_result
-            
-            operations_performed.append('certification_updated')
         
-        # Statistics update
-        if stats_update:
-            followers_delta = stats_update.get('followers_delta', 0)
-            following_delta = stats_update.get('following_delta', 0)
-            posts_delta = stats_update.get('posts_delta', 0)
-            
-            stats_result = user_org_service.update_stats(
-                nickname=nickname,
-                followers_delta=followers_delta,
-                following_delta=following_delta,
-                posts_delta=posts_delta
-            )
-            
-            if result:
-                result.update(stats_result)
-            else:
-                result = stats_result
-            
-            operations_performed.append('stats_updated')
+        # Update the entity
+        result = user_org_service.update_entity(
+            nickname=nickname,
+            updates=updates,
+            updated_by=params.get('updated_by')
+        )
         
-        # If no operations were performed, just return current entity data
-        if not operations_performed:
-            result = user_org_service.get_entity(nickname)
-            operations_performed.append('entity_retrieved')
-        
-        print(f"Successfully updated entity: {nickname} (operations: {', '.join(operations_performed)})")
+        print(f"Successfully updated entity: {nickname}")
         
         # Return success response
         response_data = {
             'success': True,
             'message': 'Entity updated successfully',
-            'operations_performed': operations_performed,
+            'nickname': nickname,
+            'updated_fields': list(updates.keys()),
             'entity': result
         }
         

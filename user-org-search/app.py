@@ -4,26 +4,22 @@ Search across users and organizations by nickname or full name
 """
 import json
 import os
+import sys
 
 # Add shared directory to path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-from anecdotario_commons.decorators import validate_query_or_body, handle_exceptions, log_request
-from anecdotario_commons.models.user_org import UserOrg
-from anecdotario_commons.utils import create_response, create_error_response
-from anecdotario_commons.constants import HTTPConstants
-import functools
-def search_handler(func):
-    """Custom composite decorator for search handler"""
-    
-    @functools.wraps(func)
-    @log_request()
-    @handle_exceptions()
-    @validate_query_or_body([])  # No required fields - query is optional
-    def wrapper(event, context):
-        return func(event, context)
-    
-    return wrapper
-@search_handler
+from shared.decorators import api_gateway_handler
+from shared.services.service_container import get_service
+from shared.utils import create_response, create_error_response
+from shared.constants import HTTPConstants
+@api_gateway_handler(
+    required_fields=[],  # No required fields - query is optional
+    entity_validation=False,
+    photo_type_validation=False,
+    log_requests=True,
+    require_auth=True  # This is a public API endpoint
+)
 def lambda_handler(event, context):
     """
     Search users and organizations by query with pagination support
@@ -40,9 +36,12 @@ def lambda_handler(event, context):
     Returns all users/orgs where nickname or full_name contains the query
     Response includes pagination info for retrieving additional results
     """
-    # Get query parameters
+    # Get query parameters (API Gateway format)
     query_params = event.get('queryStringParameters') or {}
     query = query_params.get('q', '').strip()
+    
+    # Get user-org service from container (dependency injection)
+    user_org_service = get_service('user_org_service')
     
     # Validate query
     if not query:

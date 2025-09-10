@@ -4,28 +4,24 @@ Retrieves user or organization data with flexible query options
 """
 import json
 import os
+import sys
 
 # Add shared directory to path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-from anecdotario_commons.decorators import validate_query_or_body, handle_exceptions, cors_enabled, log_request
-from anecdotario_commons.services.service_container import get_service
-from anecdotario_commons.utils import create_response, create_error_response
-from anecdotario_commons.constants import HTTPConstants
-from anecdotario_commons.exceptions import EntityNotFoundError
-import functools
-def user_org_get_handler(func):
-    """Custom composite decorator for user-org get handler"""
-    
-    @functools.wraps(func)
-    @log_request(operation='user_org_get')
-    @cors_enabled(['GET', 'POST'])
-    @handle_exceptions(operation='user_org_get')
-    @validate_query_or_body([])  # No required fields - conditional validation
-    def wrapper(event, context):
-        return func(event, context)
-    
-    return wrapper
-@user_org_get_handler
+from shared.decorators import direct_lambda_handler
+from shared.services.service_container import get_service
+from shared.utils import create_response, create_error_response
+from shared.constants import HTTPConstants
+from shared.exceptions import EntityNotFoundError
+
+
+@direct_lambda_handler(
+    required_fields=[],  # No required fields - conditional validation
+    entity_validation=False,  # Manual validation based on operation
+    photo_type_validation=False,
+    log_requests=True
+)
 def lambda_handler(event, context):
     """
     Get user/organization data with flexible query options
@@ -33,32 +29,22 @@ def lambda_handler(event, context):
     Supports multiple operation modes:
     
     Mode 1 - Get specific entity:
-    GET /?nickname=john_doe
-    POST {"nickname": "john_doe"}
+    {"nickname": "john_doe"}
     
-    Mode 2 - List entities with filtering:  
-    GET /?user_type=user&limit=20
-    POST {"user_type": "organization", "limit": 10}
+    Mode 2 - Search entities:
+    {"search": "john", "limit": 5}
     
-    Mode 3 - Search entities:
-    GET /?search=john&limit=5
-    POST {"search": "acme", "limit": 10}
-    
-    Mode 4 - Get certified entities:
-    GET /?certified=true
-    POST {"certified": true}
+    Mode 3 - List entities by type:
+    {"user_type": "user", "limit": 20}
     """
-    # Get parameters from query or body (handled by decorator)
-    params = event.get('parsed_params', {})
+    # Get parameters from event (direct invocation)
+    params = event
     
     # Extract parameters
     nickname = params.get('nickname')
     user_type = params.get('user_type')
     search = params.get('search')
-    certified = str(params.get('certified', '')).lower() in ('true', '1', 'yes')
-    limit = min(int(params.get('limit', 50)), 100)  # Cap at 100
-    last_evaluated_key = params.get('last_evaluated_key')
-    public_only = str(params.get('public_only', 'true')).lower() in ('true', '1', 'yes')
+    limit = min(int(params.get('limit', 20)), 100)  # Cap at 100
     
     # Get user-org service from container (dependency injection)
     user_org_service = get_service('user_org_service')
@@ -68,54 +54,39 @@ def lambda_handler(event, context):
             # Mode 1: Get specific entity
             print(f"Getting entity by nickname: {nickname}")
             
-            try:
-                if public_only:
-                    result = user_org_service.get_public_entity(nickname)
-                else:
-                    result = user_org_service.get_entity(nickname)
-                
-                response_data = {
-                    'success': True,
-                    'entity': result
-                }
-                
-            except EntityNotFoundError as e:
+            result = user_org_service.get_entity(nickname)
+            if not result:
                 return create_error_response(
                     HTTPConstants.NOT_FOUND,
-                    str(e),
+                    f"Entity '{nickname}' not found",
                     event,
                     {'nickname': nickname}
                 )
-                
+            
+            response_data = {
+                'success': True,
+                'entity': result
+            }
+            
         elif search:
-            # Mode 3: Search entities
+            # Mode 2: Search entities
             print(f"Searching entities with: {search}")
             
-            results = user_org_service.search_entities(search, limit)
+            results = user_org_service.search_entities(
+                query=search,
+                limit=limit
+            )
             
             response_data = {
                 'success': True,
                 'search_query': search,
-                'entities': results,
-                'total_returned': len(results),
-                'limit': limit
-            }
-            
-        elif certified:
-            # Mode 4: Get certified entities
-            print(f"Getting certified entities (limit: {limit})")
-            
-            results = user_org_service.get_certified_entities(limit)
-            
-            response_data = {
-                'success': True,
-                'certified_entities': results,
-                'total_returned': len(results),
+                'entities': results['results'],
+                'total_returned': len(results['results']),
                 'limit': limit
             }
             
         else:
-            # Mode 2: List entities with optional filtering
+            # Mode 3: List entities with optional filtering
             print(f"Listing entities (type: {user_type or 'all'}, limit: {limit})")
             
             # Validate user_type if provided
@@ -127,37 +98,19 @@ def lambda_handler(event, context):
                     {'valid_user_types': ['user', 'organization']}
                 )
             
-            results = user_org_service.list_entities(
-                user_type=user_type,
-                limit=limit,
-                last_evaluated_key=last_evaluated_key
+            results = user_org_service.search_entities(
+                query="",  # Empty query to get all
+                entity_type=user_type,
+                limit=limit
             )
             
-            # Adjust response based on user_type
-            if user_type == 'user':
-                response_data = {
-                    'success': True,
-                    'users': results.get('users', []),
-                    'total_returned': results.get('total_returned', 0),
-                    'last_evaluated_key': results.get('last_evaluated_key'),
-                    'limit': limit
-                }
-            elif user_type == 'organization':
-                response_data = {
-                    'success': True,
-                    'organizations': results.get('organizations', []),
-                    'total_returned': results.get('total_returned', 0),
-                    'last_evaluated_key': results.get('last_evaluated_key'),
-                    'limit': limit
-                }
-            else:
-                response_data = {
-                    'success': True,
-                    'entities': results.get('entities', []),
-                    'total_returned': results.get('total_returned', 0),
-                    'last_evaluated_key': results.get('last_evaluated_key'),
-                    'limit': limit
-                }
+            response_data = {
+                'success': True,
+                'entities': results['results'],
+                'total_returned': len(results['results']),
+                'entity_type': user_type,
+                'limit': limit
+            }
         
         print(f"Successfully processed request")
         

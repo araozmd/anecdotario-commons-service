@@ -4,19 +4,20 @@ Creates new users or organizations in the unified table
 """
 import json
 import os
+import sys
 
 # Add shared directory to path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-from anecdotario_commons.decorators import standard_lambda_handler
-from anecdotario_commons.services.service_container import get_service
-from anecdotario_commons.utils import create_response
-from anecdotario_commons.constants import HTTPConstants
-from anecdotario_commons.exceptions import ValidationError, DuplicateEntityError
-@standard_lambda_handler(
+from shared.decorators import api_gateway_handler
+from shared.services.service_container import get_service
+from shared.utils import create_response
+from shared.constants import HTTPConstants
+from shared.exceptions import ValidationError, DuplicateEntityError
+@direct_lambda_handler(
     required_fields=['nickname', 'full_name', 'user_type'],
     entity_validation=False,  # We'll validate user_type manually
     photo_type_validation=False,
-    support_query_params=False,
     log_requests=True
 )
 def lambda_handler(event, context):
@@ -37,7 +38,7 @@ def lambda_handler(event, context):
     }
     """
     # Extract validated parameters (decorators guarantee these exist)
-    params = event['parsed_body']
+    params = event
     
     # Extract required fields
     nickname = params['nickname']

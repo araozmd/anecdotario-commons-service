@@ -4,14 +4,16 @@ Entity-agnostic photo deletion service for users, orgs, campaigns, etc.
 """
 import json
 import os
+import sys
 
 # Add shared directory to path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-from anecdotario_commons.decorators import direct_lambda_handler
-from anecdotario_commons.services.service_container import get_service
-from anecdotario_commons.utils import create_response, create_error_response
-from anecdotario_commons.constants import HTTPConstants
-from anecdotario_commons.exceptions import ValidationError
+from shared.decorators import direct_lambda_handler
+from shared.services.service_container import get_service
+from shared.utils import create_response, create_error_response
+from shared.constants import HTTPConstants
+from shared.exceptions import ValidationError
 @direct_lambda_handler(
     required_fields=[],  # Conditional validation based on operation mode
     entity_validation=False,  # Manual validation based on mode
@@ -45,15 +47,16 @@ def lambda_handler(event, context):
             print(f"Deleting photo by ID: {photo_id}")
             
             try:
-                result = photo_service.delete_photo_by_id(photo_id)
+                result = photo_service.delete_photo(photo_id=photo_id)
                 
                 response_data = {
                     'success': True,
                     'message': 'Photo deleted successfully',
                     'photo_id': photo_id,
-                    'deleted_files_count': len(result['deleted_files']),
-                    'deleted_files': result['deleted_files'],
-                    'errors': result['deletion_errors'] if result['deletion_errors'] else None
+                    'deleted_count': result['deleted_count'],
+                    'failed_count': result['failed_count'],
+                    's3_cleanup': result['s3_cleanup'],
+                    'errors': result.get('failed_photos', [])
                 }
                 
             except ValidationError as e:

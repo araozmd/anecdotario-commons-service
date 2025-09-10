@@ -4,14 +4,16 @@ Regenerates presigned URLs for protected photo versions
 """
 import json
 import os
+import sys
 
 # Add shared directory to path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-from anecdotario_commons.decorators import direct_lambda_handler
-from anecdotario_commons.services.service_container import get_service
-from anecdotario_commons.utils import create_response, create_error_response
-from anecdotario_commons.constants import HTTPConstants, TimeConstants
-from anecdotario_commons.exceptions import ValidationError
+from shared.decorators import direct_lambda_handler
+from shared.services.service_container import get_service
+from shared.utils import create_response, create_error_response
+from shared.constants import HTTPConstants, TimeConstants
+from shared.exceptions import ValidationError
 @direct_lambda_handler(
     required_fields=[],  # Conditional validation based on operation mode
     entity_validation=False,  # Manual validation based on mode

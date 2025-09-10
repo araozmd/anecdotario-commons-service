@@ -4,17 +4,19 @@ Validates nicknames for users, orgs, and other entities with detailed error hint
 """
 import json
 import os
+import sys
 
 # Add shared directory to path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-from anecdotario_commons.decorators import direct_lambda_handler
-from anecdotario_commons.validators.nickname import nickname_validator
-from anecdotario_commons.utils import create_response, create_error_response
-from anecdotario_commons.constants import HTTPConstants, EntityConstants
+from shared.decorators import direct_lambda_handler
+from shared.validators.nickname import nickname_validator
+from shared.utils import create_response, create_error_response
+from shared.constants import HTTPConstants, EntityConstants
 @direct_lambda_handler(
     required_fields=[],  # No required fields - conditional validation based on operation
     entity_validation=True,
-    valid_entity_types=EntityConstants.NICKNAME_ENTITY_TYPES,
+    valid_entity_types=EntityConstants.ALL_ENTITY_TYPES,
     log_requests=True
 )
 def lambda_handler(event, context):
