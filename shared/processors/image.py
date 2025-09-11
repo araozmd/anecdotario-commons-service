@@ -19,7 +19,7 @@ class ImageProcessor:
         self.max_size = config.max_image_size
         self.allowed_formats = ['JPEG', 'PNG', 'WEBP']
         self.output_format = 'JPEG'
-        self.output_quality = ImageConstants.JPEG_QUALITY
+        self.output_quality = ImageConstants.STANDARD_QUALITY
     
     def process_image(self, image_data: bytes, versions: Dict[str, Tuple[int, int]] = None) -> Dict[str, Any]:
         """

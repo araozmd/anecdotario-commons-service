@@ -103,32 +103,37 @@ class ValidationConstants:
     MAX_NICKNAME_LENGTH = 30
     NICKNAME_PATTERN = r'^[a-zA-Z0-9_-]+$'
     
-    # Reserved words for different entity types
-    RESERVED_USER_NICKNAMES = [
+    # Common reserved words used across all entity types
+    COMMON_RESERVED_WORDS = [
         'admin', 'administrator', 'root', 'system', 'api', 'www',
         'mail', 'email', 'support', 'help', 'info', 'contact',
         'service', 'services', 'app', 'application', 'test', 'testing',
         'dev', 'development', 'prod', 'production', 'staging', 'stage',
-        'user', 'users', 'account', 'accounts', 'profile', 'profiles',
-        'settings', 'config', 'configuration', 'dashboard', 'admin',
-        'moderator', 'mod', 'staff', 'team', 'about', 'terms',
-        'privacy', 'legal', 'copyright', 'trademark', 'null', 'undefined',
-        'true', 'false', 'login', 'logout', 'register', 'signup',
-        'signin', 'auth', 'authentication', 'authorization', 'oauth',
-        'anecdotario', 'story', 'stories', 'campaign', 'campaigns'
+        'about', 'terms', 'privacy', 'legal', 'copyright', 'trademark', 
+        'null', 'undefined', 'true', 'false', 'login', 'logout', 
+        'register', 'signup', 'signin', 'auth', 'authentication', 
+        'authorization', 'oauth', 'anecdotario'
     ]
     
-    RESERVED_ORG_NICKNAMES = [
+    # Reserved words for different entity types
+    RESERVED_USER_NICKNAMES = COMMON_RESERVED_WORDS + [
+        'user', 'users', 'account', 'accounts', 'profile', 'profiles',
+        'settings', 'config', 'configuration', 'dashboard', 
+        'moderator', 'mod', 'staff', 'team', 'story', 'stories', 
+        'campaign', 'campaigns'
+    ]
+    
+    RESERVED_ORG_NICKNAMES = COMMON_RESERVED_WORDS + [
         'organization', 'organizations', 'org', 'orgs', 'company',
         'companies', 'business', 'businesses', 'corporation', 'corp',
         'enterprise', 'group', 'team', 'official', 'verified',
         'brand', 'brands', 'partner', 'partners', 'sponsor', 'sponsors'
-    ] + RESERVED_USER_NICKNAMES  # Include user reserved words
+    ]
     
-    RESERVED_CAMPAIGN_NICKNAMES = [
+    RESERVED_CAMPAIGN_NICKNAMES = COMMON_RESERVED_WORDS + [
         'campaign', 'campaigns', 'story', 'stories', 'collection',
         'collections', 'event', 'events', 'project', 'projects'
-    ] + RESERVED_USER_NICKNAMES  # Include user reserved words
+    ]
     
     # Name validation
     MIN_NAME_LENGTH = 1

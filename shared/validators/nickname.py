@@ -18,9 +18,9 @@ class NicknameValidator:
         # Reserved words by entity type
         self.reserved_words = {
             'common': ValidationConstants.COMMON_RESERVED_WORDS,
-            'user': ValidationConstants.USER_RESERVED_WORDS,
-            'org': ValidationConstants.ORG_RESERVED_WORDS,
-            'campaign': ValidationConstants.CAMPAIGN_RESERVED_WORDS
+            'user': ValidationConstants.RESERVED_USER_NICKNAMES,
+            'org': ValidationConstants.RESERVED_ORG_NICKNAMES,
+            'campaign': ValidationConstants.RESERVED_CAMPAIGN_NICKNAMES
         }
         
         # Validation patterns
@@ -30,8 +30,8 @@ class NicknameValidator:
         self.consecutive_special = re.compile(r'[-_]{2,}')
         
         # Length limits
-        self.min_length = ValidationConstants.NICKNAME_MIN_LENGTH
-        self.max_length = ValidationConstants.NICKNAME_MAX_LENGTH
+        self.min_length = ValidationConstants.MIN_NICKNAME_LENGTH
+        self.max_length = ValidationConstants.MAX_NICKNAME_LENGTH
         
         # Profanity and inappropriate content patterns (basic)
         self.inappropriate_patterns = [
