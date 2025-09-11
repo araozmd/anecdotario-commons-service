@@ -1,30 +1,180 @@
 """
 Photo Upload Lambda Function
-Entity-agnostic photo upload service for users, orgs, campaigns, etc.
+Self-contained photo upload service for users, orgs, campaigns, etc.
 """
 import json
 import os
-import sys
+import base64
+import hashlib
+import uuid
+from datetime import datetime
+from typing import Dict, Any, Optional
+import boto3
+from botocore.exceptions import ClientError
+from PIL import Image
+import io
 
-# Add shared directory to path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-from shared.decorators import direct_lambda_handler
-from shared.services.service_container import get_service
-from shared.utils import create_response
-from shared.constants import HTTPConstants
+def create_response(status_code: int, body: str, headers: dict = None) -> Dict[str, Any]:
+    """Create standardized Lambda proxy response"""
+    default_headers = {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
+        'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS'
+    }
+    
+    if headers:
+        default_headers.update(headers)
+    
+    return {
+        'statusCode': status_code,
+        'headers': default_headers,
+        'body': body
+    }
 
 
-@direct_lambda_handler(
-    required_fields=['image', 'entity_type', 'entity_id', 'photo_type'],
-    entity_validation=True,
-    photo_type_validation=True,
-    log_requests=True
-)
+def create_error_response(status_code: int, message: str, details: dict = None) -> Dict[str, Any]:
+    """Create standardized error response"""
+    error_body = {
+        'error': True,
+        'message': message,
+        'timestamp': datetime.utcnow().isoformat()
+    }
+    
+    if details:
+        error_body['details'] = details
+    
+    return create_response(status_code, json.dumps(error_body))
+
+
+def validate_input(event: dict) -> Dict[str, Any]:
+    """Validate input parameters"""
+    required_fields = ['image', 'entity_type', 'entity_id', 'photo_type']
+    
+    # Handle both direct Lambda invocation and API Gateway formats
+    if 'body' in event:
+        try:
+            body = json.loads(event['body']) if isinstance(event['body'], str) else event['body']
+        except json.JSONDecodeError:
+            raise ValueError("Invalid JSON in request body")
+    else:
+        body = event
+    
+    # Check required fields
+    for field in required_fields:
+        if field not in body or not body[field]:
+            raise ValueError(f"Missing required field: {field}")
+    
+    # Validate entity_type
+    valid_entity_types = ['user', 'org', 'campaign']
+    if body['entity_type'] not in valid_entity_types:
+        raise ValueError(f"Invalid entity_type. Must be one of: {', '.join(valid_entity_types)}")
+    
+    # Validate photo_type
+    valid_photo_types = ['profile', 'logo', 'banner', 'gallery']
+    if body['photo_type'] not in valid_photo_types:
+        raise ValueError(f"Invalid photo_type. Must be one of: {', '.join(valid_photo_types)}")
+    
+    return body
+
+
+def process_image(image_data: str) -> Dict[str, bytes]:
+    """Process image into multiple versions"""
+    try:
+        # Remove data URL prefix if present
+        if image_data.startswith('data:image/'):
+            image_data = image_data.split(',', 1)[1]
+        
+        # Decode base64
+        image_bytes = base64.b64decode(image_data)
+        
+        # Open image with PIL
+        img = Image.open(io.BytesIO(image_bytes))
+        
+        # Convert to RGB if necessary
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        
+        # Process different versions
+        versions = {}
+        
+        # Thumbnail: 150x150 square
+        thumb = img.copy()
+        thumb.thumbnail((150, 150), Image.Resampling.LANCZOS)
+        thumb_buffer = io.BytesIO()
+        thumb.save(thumb_buffer, format='JPEG', quality=85, optimize=True)
+        versions['thumbnail'] = thumb_buffer.getvalue()
+        
+        # Standard: 320x320 square
+        standard = img.copy()
+        standard.thumbnail((320, 320), Image.Resampling.LANCZOS)
+        standard_buffer = io.BytesIO()
+        standard.save(standard_buffer, format='JPEG', quality=90, optimize=True)
+        versions['standard'] = standard_buffer.getvalue()
+        
+        # High resolution: 800x800 square
+        high_res = img.copy()
+        high_res.thumbnail((800, 800), Image.Resampling.LANCZOS)
+        high_res_buffer = io.BytesIO()
+        high_res.save(high_res_buffer, format='JPEG', quality=95, optimize=True)
+        versions['high_res'] = high_res_buffer.getvalue()
+        
+        return versions
+        
+    except Exception as e:
+        raise ValueError(f"Error processing image: {str(e)}")
+
+
+def upload_to_s3(bucket_name: str, entity_type: str, entity_id: str, photo_type: str, versions: Dict[str, bytes]) -> Dict[str, str]:
+    """Upload image versions to S3"""
+    s3_client = boto3.client('s3')
+    
+    # Generate unique identifiers
+    timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+    unique_id = str(uuid.uuid4())[:8]
+    
+    # Upload each version
+    s3_keys = {}
+    urls = {}
+    
+    for version_name, image_bytes in versions.items():
+        # Create S3 key
+        s3_key = f"{entity_type}/{entity_id}/{photo_type}/{version_name}_{timestamp}_{unique_id}.jpg"
+        
+        try:
+            # Upload to S3
+            s3_client.put_object(
+                Bucket=bucket_name,
+                Key=s3_key,
+                Body=image_bytes,
+                ContentType='image/jpeg',
+                ServerSideEncryption='AES256'
+            )
+            
+            s3_keys[version_name] = s3_key
+            
+            # Generate URLs
+            if version_name == 'thumbnail':
+                # Public URL for thumbnails
+                urls[version_name] = f"https://{bucket_name}.s3.amazonaws.com/{s3_key}"
+            else:
+                # Presigned URLs for protected images (7 days expiry)
+                urls[version_name] = s3_client.generate_presigned_url(
+                    'get_object',
+                    Params={'Bucket': bucket_name, 'Key': s3_key},
+                    ExpiresIn=604800  # 7 days
+                )
+            
+        except ClientError as e:
+            raise Exception(f"Error uploading {version_name} to S3: {str(e)}")
+    
+    return {'s3_keys': s3_keys, 'urls': urls}
+
+
 def lambda_handler(event, context):
     """
-    Clean photo upload handler using decorators and service layer
-    All validation is handled by decorators, business logic is separated
+    Photo upload handler for all entity types
     
     Expected request format:
     {
@@ -36,49 +186,59 @@ def lambda_handler(event, context):
         "upload_source": "user-service|org-service"
     }
     """
-    # Extract validated parameters directly from payload (decorators guarantee these exist and are valid)
-    params = event
     
-    image_data = params['image']
-    entity_type = params['entity_type']
-    entity_id = params['entity_id']
-    photo_type = params['photo_type']
-    uploaded_by = params.get('uploaded_by')
-    upload_source = params.get('upload_source', 'unknown')
-    
-    print(f"Processing photo upload: {entity_type}/{entity_id}/{photo_type}")
-    
-    # Get photo service from container (dependency injection)
-    photo_service = get_service('photo_service')
-    
-    # Business logic - delegate to service layer
-    result = photo_service.upload_photo(
-        image_data=image_data,
-        entity_type=entity_type,
-        entity_id=entity_id,
-        photo_type=photo_type,
-        uploaded_by=uploaded_by,
-        upload_source=upload_source
-    )
-    
-    # Return success response
-    response_data = {
-        'success': True,
-        'message': 'Photo uploaded successfully',
-        'photo_id': result['photo_id'],
-        'entity_type': entity_type,
-        'entity_id': entity_id,
-        'photo_type': photo_type,
-        'urls': result['urls'],
-        'metadata': result['metadata'],
-        'cleanup_result': result.get('cleanup_result', {})
-    }
-    
-    print(f"Photo upload completed successfully: {result['photo_id']}")
-    
-    return create_response(
-        HTTPConstants.OK,
-        json.dumps(response_data),
-        event
-    )
-
+    try:
+        # Validate input
+        params = validate_input(event)
+        
+        image_data = params['image']
+        entity_type = params['entity_type']
+        entity_id = params['entity_id']
+        photo_type = params['photo_type']
+        uploaded_by = params.get('uploaded_by')
+        upload_source = params.get('upload_source', 'unknown')
+        
+        print(f"Processing photo upload: {entity_type}/{entity_id}/{photo_type}")
+        
+        # Get bucket name from environment or parameter store
+        bucket_name = os.environ.get('PHOTO_BUCKET_NAME')
+        if not bucket_name:
+            return create_error_response(500, "S3 bucket not configured")
+        
+        # Process image into multiple versions
+        versions = process_image(image_data)
+        
+        # Upload to S3
+        upload_result = upload_to_s3(bucket_name, entity_type, entity_id, photo_type, versions)
+        
+        # Generate photo ID
+        photo_id = f"{entity_type}_{entity_id}_{photo_type}_{int(datetime.utcnow().timestamp())}"
+        
+        # Create response
+        response_data = {
+            'success': True,
+            'message': 'Photo uploaded successfully',
+            'photo_id': photo_id,
+            'entity_type': entity_type,
+            'entity_id': entity_id,
+            'photo_type': photo_type,
+            'urls': upload_result['urls'],
+            'metadata': {
+                's3_keys': upload_result['s3_keys'],
+                'bucket_name': bucket_name,
+                'uploaded_by': uploaded_by,
+                'upload_source': upload_source,
+                'timestamp': datetime.utcnow().isoformat()
+            }
+        }
+        
+        print(f"Photo upload completed successfully: {photo_id}")
+        
+        return create_response(200, json.dumps(response_data))
+        
+    except ValueError as e:
+        print(f"Validation error: {str(e)}")
+        return create_error_response(400, str(e))
+    except Exception as e:
+        print(f"Unexpected error: {str(e)}")
+        return create_error_response(500, 'Internal server error')

@@ -1,24 +1,179 @@
 """
 Nickname Validation Lambda Function
-Validates nicknames for users, orgs, and other entities with detailed error hints
+Self-contained nickname validation service for users, orgs, campaigns, etc.
 """
 import json
-import os
-import sys
+import re
+from datetime import datetime
+from typing import Dict, Any, List
 
-# Add shared directory to path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-from shared.decorators import direct_lambda_handler
-from shared.validators.nickname import nickname_validator
-from shared.utils import create_response, create_error_response
-from shared.constants import HTTPConstants, EntityConstants
-@direct_lambda_handler(
-    required_fields=[],  # No required fields - conditional validation based on operation
-    entity_validation=True,
-    valid_entity_types=EntityConstants.ALL_ENTITY_TYPES,
-    log_requests=True
-)
+def create_response(status_code: int, body: str, headers: dict = None) -> Dict[str, Any]:
+    """Create standardized Lambda proxy response"""
+    default_headers = {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
+        'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS'
+    }
+    
+    if headers:
+        default_headers.update(headers)
+    
+    return {
+        'statusCode': status_code,
+        'headers': default_headers,
+        'body': body
+    }
+
+
+def create_error_response(status_code: int, message: str, details: dict = None) -> Dict[str, Any]:
+    """Create standardized error response"""
+    error_body = {
+        'error': True,
+        'message': message,
+        'timestamp': datetime.utcnow().isoformat()
+    }
+    
+    if details:
+        error_body['details'] = details
+    
+    return create_response(status_code, json.dumps(error_body))
+
+
+# Reserved words for different entity types
+RESERVED_WORDS = {
+    'common': [
+        'admin', 'administrator', 'root', 'system', 'api', 'www', 'mail', 'email',
+        'support', 'help', 'info', 'contact', 'about', 'terms', 'privacy', 'legal',
+        'security', 'null', 'undefined', 'true', 'false', 'test', 'demo', 'example'
+    ],
+    'user': [
+        'me', 'user', 'users', 'profile', 'account', 'settings', 'login', 'logout',
+        'register', 'signup', 'signin', 'dashboard', 'home', 'notifications'
+    ],
+    'org': [
+        'org', 'organization', 'company', 'business', 'enterprise', 'team',
+        'group', 'community', 'public', 'official', 'verified'
+    ],
+    'campaign': [
+        'campaign', 'campaigns', 'story', 'stories', 'collection', 'archive',
+        'memory', 'memories', 'anecdote', 'anecdotes'
+    ]
+}
+
+
+def validate_input(event: dict) -> Dict[str, Any]:
+    """Validate input parameters"""
+    # Handle both direct Lambda invocation and API Gateway formats
+    if 'body' in event:
+        try:
+            body = json.loads(event['body']) if isinstance(event['body'], str) else event['body']
+        except json.JSONDecodeError:
+            raise ValueError("Invalid JSON in request body")
+    else:
+        body = event
+    
+    # Check if this is a rules request
+    if body.get('get_rules'):
+        entity_type = body.get('entity_type', 'user')
+        return {'get_rules': True, 'entity_type': entity_type}
+    
+    # Validate nickname request
+    if 'nickname' not in body or not body['nickname']:
+        raise ValueError("Missing required field: nickname")
+    
+    entity_type = body.get('entity_type', 'user')
+    
+    # Validate entity_type
+    valid_entity_types = ['user', 'org', 'campaign']
+    if entity_type not in valid_entity_types:
+        raise ValueError(f"Invalid entity_type. Must be one of: {', '.join(valid_entity_types)}")
+    
+    return body
+
+
+def validate_nickname(nickname: str, entity_type: str) -> Dict[str, Any]:
+    """Validate nickname according to rules"""
+    errors = []
+    hints = []
+    
+    # Length validation
+    if len(nickname) < 3:
+        errors.append("too_short")
+        hints.append("Nickname must be at least 3 characters long")
+    elif len(nickname) > 30:
+        errors.append("too_long")
+        hints.append("Nickname must be no more than 30 characters long")
+    
+    # Character validation
+    if not re.match(r'^[a-zA-Z0-9_.-]+$', nickname):
+        errors.append("invalid_characters")
+        hints.append("Nickname can only contain letters, numbers, underscores, dots, and hyphens")
+    
+    # Start/end validation
+    if nickname.startswith(('.', '-', '_')) or nickname.endswith(('.', '-', '_')):
+        errors.append("invalid_start_end")
+        hints.append("Nickname cannot start or end with dots, hyphens, or underscores")
+    
+    # Consecutive special characters
+    if re.search(r'[._-]{2,}', nickname):
+        errors.append("consecutive_special")
+        hints.append("Nickname cannot have consecutive dots, hyphens, or underscores")
+    
+    # Reserved words check
+    reserved_for_entity = RESERVED_WORDS.get('common', []) + RESERVED_WORDS.get(entity_type, [])
+    if nickname.lower() in [word.lower() for word in reserved_for_entity]:
+        errors.append("reserved_word")
+        hints.append(f"'{nickname}' is a reserved word and cannot be used")
+    
+    # Profanity check (basic)
+    profanity_words = ['fuck', 'shit', 'damn', 'bitch', 'ass', 'hell']
+    if any(word in nickname.lower() for word in profanity_words):
+        errors.append("inappropriate")
+        hints.append("Nickname contains inappropriate language")
+    
+    # Numeric only check
+    if nickname.isdigit():
+        errors.append("numeric_only")
+        hints.append("Nickname cannot be only numbers")
+    
+    is_valid = len(errors) == 0
+    
+    return {
+        'valid': is_valid,
+        'errors': errors,
+        'hints': hints,
+        'nickname': nickname,
+        'entity_type': entity_type
+    }
+
+
+def get_validation_rules(entity_type: str) -> Dict[str, Any]:
+    """Get validation rules for entity type"""
+    return {
+        'entity_type': entity_type,
+        'rules': {
+            'min_length': 3,
+            'max_length': 30,
+            'allowed_characters': 'Letters, numbers, underscores, dots, and hyphens',
+            'pattern': '^[a-zA-Z0-9_.-]+$',
+            'restrictions': [
+                'Cannot start or end with dots, hyphens, or underscores',
+                'Cannot have consecutive dots, hyphens, or underscores',
+                'Cannot be only numbers',
+                'Cannot contain inappropriate language',
+                'Cannot be a reserved word'
+            ]
+        },
+        'reserved_words': RESERVED_WORDS.get('common', []) + RESERVED_WORDS.get(entity_type, []),
+        'examples': {
+            'valid': ['john_doe', 'user123', 'my-company', 'story.collection'],
+            'invalid': ['ab', '.user', 'user.', 'user..name', '123456', 'admin']
+        }
+    }
+
+
 def lambda_handler(event, context):
     """
     Nickname validation handler supporting two operation modes
@@ -29,75 +184,53 @@ def lambda_handler(event, context):
     Mode 2 - Get validation rules:
     {"get_rules": true, "entity_type": "user"}
     """
-    # Get parameters directly from payload (direct invocation)
-    params = event
     
-    # Extract parameters
-    nickname = params.get('nickname', '').strip()
-    entity_type = params.get('entity_type', 'user').lower()
-    get_rules = str(params.get('get_rules', '')).lower() in ('true', '1', 'yes')
-    
-    if get_rules:
-        # Mode 2: Return validation rules
-        print(f"Validation rules requested for {entity_type}")
+    try:
+        # Validate input
+        params = validate_input(event)
         
-        rules = nickname_validator.get_validation_rules(entity_type)
+        if params.get('get_rules'):
+            # Mode 2: Return validation rules
+            entity_type = params.get('entity_type', 'user')
+            rules = get_validation_rules(entity_type)
+            
+            print(f"Returning validation rules for entity type: {entity_type}")
+            return create_response(200, json.dumps(rules))
         
-        response_data = {
-            'success': True,
-            'message': 'Validation rules retrieved successfully',
-            'entity_type': entity_type,
-            'rules': rules
-        }
+        else:
+            # Mode 1: Validate nickname
+            nickname = params['nickname']
+            entity_type = params.get('entity_type', 'user')
+            
+            print(f"Validating nickname: {nickname} for entity type: {entity_type}")
+            
+            validation_result = validate_nickname(nickname, entity_type)
+            
+            if validation_result['valid']:
+                response_data = {
+                    'success': True,
+                    'valid': True,
+                    'message': f'Nickname "{nickname}" is valid',
+                    'nickname': nickname,
+                    'entity_type': entity_type
+                }
+            else:
+                response_data = {
+                    'success': True,
+                    'valid': False,
+                    'message': f'Nickname "{nickname}" is not valid',
+                    'nickname': nickname,
+                    'entity_type': entity_type,
+                    'errors': validation_result['errors'],
+                    'hints': validation_result['hints']
+                }
+            
+            print(f"Nickname validation completed: {validation_result['valid']}")
+            return create_response(200, json.dumps(response_data))
         
-        return create_response(
-            HTTPConstants.OK,
-            json.dumps(response_data),
-            event
-        )
-    
-    # Mode 1: Validate nickname
-    if not nickname:
-        return create_error_response(
-            HTTPConstants.BAD_REQUEST,
-            'Nickname is required for validation',
-            event,
-            {
-                'usage_validate': 'POST with {"nickname": "test_user", "entity_type": "user"}',
-                'usage_rules': 'POST with {"get_rules": true, "entity_type": "user"}'
-            }
-        )
-    
-    print(f"Validating nickname '{nickname}' for {entity_type}")
-    
-    # Validate nickname using the enhanced validator
-    validation_result = nickname_validator.validate(nickname, entity_type)
-    
-    # Create enhanced response with all validation details
-    response_data = {
-        'success': True,
-        'valid': validation_result['valid'],
-        'original': validation_result['original'],
-        'normalized': validation_result['normalized'],
-        'entity_type': validation_result['entity_type'],
-        'errors': validation_result['errors'],
-        'warnings': validation_result['warnings'],
-        'hints': validation_result['hints']
-    }
-    
-    # Add status-specific fields
-    if validation_result['valid']:
-        response_data['message'] = 'Nickname is valid'
-        response_data['validation_passed'] = True
-        print(f"Nickname validation passed: {nickname} (normalized: {validation_result['normalized']})")
-    else:
-        # For backward compatibility, join errors into single error message
-        response_data['error'] = '; '.join(validation_result['errors']) if validation_result['errors'] else None
-        response_data['validation_failed'] = True
-        print(f"Nickname validation failed: {validation_result['errors']}")
-    
-    return create_response(
-        HTTPConstants.OK,  # Always 200 OK, check 'valid' field for result
-        json.dumps(response_data),
-        event
-    )
+    except ValueError as e:
+        print(f"Validation error: {str(e)}")
+        return create_error_response(400, str(e))
+    except Exception as e:
+        print(f"Unexpected error: {str(e)}")
+        return create_error_response(500, 'Internal server error')
