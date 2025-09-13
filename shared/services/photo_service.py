@@ -3,7 +3,7 @@ Photo service with complete upload/delete/refresh operations
 Handles photo processing, S3 storage, and database operations
 """
 from typing import Dict, List, Any, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 from ..constants import ImageConstants
 from ..validation_utils import generate_photo_id, parse_base64_image
 from ..config import config
@@ -349,7 +349,7 @@ class PhotoService:
                     'entity_id': photo.entity_id,
                     'photo_type': photo.photo_type,
                     'urls': urls,
-                    'expires_at': datetime.utcnow().timestamp() + expiry
+                    'expires_at': datetime.now(timezone.utc).timestamp() + expiry
                 })
             
             result = {

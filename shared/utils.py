@@ -4,7 +4,7 @@ AWS-specific utilities for commons-service
 import json
 import hashlib
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 import boto3
 from botocore.exceptions import ClientError
@@ -60,7 +60,7 @@ def create_error_response(status_code: int, message: str, event: dict = None, de
     error_body = {
         'success': False,
         'error': message,
-        'timestamp': datetime.utcnow().isoformat()
+        'timestamp': datetime.now(timezone.utc).isoformat()
     }
     
     if details:
@@ -83,7 +83,7 @@ def generate_s3_key(entity_type: str, entity_id: str, photo_type: str, version: 
     Returns:
         S3 object key
     """
-    timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+    timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
     unique_id = str(uuid.uuid4())[:8]
     filename = f"{version}_{timestamp}_{unique_id}.{file_extension}"
     
@@ -97,7 +97,7 @@ def generate_photo_id() -> str:
     Returns:
         Unique photo identifier
     """
-    timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+    timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
     unique_id = str(uuid.uuid4())[:8]
     return f"photo_{timestamp}_{unique_id}"
 
@@ -146,6 +146,76 @@ def generate_public_url(bucket_name: str, s3_key: str) -> str:
         Public S3 URL
     """
     return f"https://{bucket_name}.s3.amazonaws.com/{s3_key}"
+
+
+def create_success_response(data: Any, metadata: Optional[Dict[str, Any]] = None, function_name: str = None) -> Dict[str, Any]:
+    """
+    Create protocol-agnostic success response for internal Lambda communication
+    
+    Args:
+        data: The actual response data
+        metadata: Optional metadata dict
+        function_name: Name of the function generating the response
+        
+    Returns:
+        Protocol-agnostic success response
+    """
+    response = {
+        "success": True,
+        "data": data
+    }
+    
+    # Build metadata
+    response_metadata = {
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
+    }
+    
+    if function_name:
+        response_metadata["function_name"] = function_name
+    
+    if metadata:
+        response_metadata.update(metadata)
+    
+    response["metadata"] = response_metadata
+    
+    return response
+
+
+def create_failure_response(error_code: str, message: str, details: Optional[Dict[str, Any]] = None, function_name: str = None) -> Dict[str, Any]:
+    """
+    Create protocol-agnostic failure response for internal Lambda communication
+    
+    Args:
+        error_code: Error code (e.g., 'VALIDATION_ERROR', 'NOT_FOUND', 'INTERNAL_ERROR')
+        message: Human-readable error message
+        details: Optional error details dict
+        function_name: Name of the function generating the response
+        
+    Returns:
+        Protocol-agnostic failure response
+    """
+    response = {
+        "success": False,
+        "error": {
+            "code": error_code,
+            "message": message
+        }
+    }
+    
+    if details:
+        response["error"]["details"] = details
+    
+    # Build metadata
+    response_metadata = {
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
+    }
+    
+    if function_name:
+        response_metadata["function_name"] = function_name
+    
+    response["metadata"] = response_metadata
+    
+    return response
 
 
 def calculate_file_hash(data: bytes, algorithm: str = 'md5') -> str:

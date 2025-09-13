@@ -4,43 +4,53 @@ Self-contained photo URL refresh service for users, orgs, campaigns, etc.
 """
 import json
 import os
-from datetime import datetime
-from typing import Dict, Any
+from datetime import datetime, timezone
+from typing import Dict, Any, Optional
 import boto3
 from botocore.exceptions import ClientError
 
 
-def create_response(status_code: int, body: str, headers: dict = None) -> Dict[str, Any]:
-    """Create standardized Lambda proxy response"""
-    default_headers = {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
-        'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS'
+def create_success_response(data: Any, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Create protocol-agnostic success response for internal Lambda communication"""
+    response = {
+        "success": True,
+        "data": data
     }
     
-    if headers:
-        default_headers.update(headers)
-    
-    return {
-        'statusCode': status_code,
-        'headers': default_headers,
-        'body': body
+    # Build metadata
+    response_metadata = {
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
+        "function_name": "photo-refresh"
     }
+    
+    if metadata:
+        response_metadata.update(metadata)
+    
+    response["metadata"] = response_metadata
+    
+    return response
 
 
-def create_error_response(status_code: int, message: str, details: dict = None) -> Dict[str, Any]:
-    """Create standardized error response"""
-    error_body = {
-        'error': True,
-        'message': message,
-        'timestamp': datetime.utcnow().isoformat()
+def create_failure_response(error_code: str, message: str, details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Create protocol-agnostic failure response for internal Lambda communication"""
+    response = {
+        "success": False,
+        "error": {
+            "code": error_code,
+            "message": message
+        }
     }
     
     if details:
-        error_body['details'] = details
+        response["error"]["details"] = details
     
-    return create_response(status_code, json.dumps(error_body))
+    # Build metadata
+    response["metadata"] = {
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
+        "function_name": "photo-refresh"
+    }
+    
+    return response
 
 
 def validate_input(event: dict) -> Dict[str, Any]:
@@ -117,7 +127,11 @@ def lambda_handler(event, context):
         # Get bucket name from environment
         bucket_name = os.environ.get('PHOTO_BUCKET_NAME')
         if not bucket_name:
-            return create_error_response(500, "S3 bucket not configured")
+            return create_failure_response(
+                "CONFIGURATION_ERROR",
+                "S3 bucket not configured",
+                {"missing_config": "PHOTO_BUCKET_NAME"}
+            )
         
         s3_client = boto3.client('s3')
         
@@ -139,8 +153,8 @@ def lambda_handler(event, context):
                 s3_keys = [obj['Key'] for obj in response['Contents']]
             
             if not s3_keys:
-                return create_error_response(
-                    404,
+                return create_failure_response(
+                    'NOT_FOUND',
                     'No photos found for the specified entity',
                     {
                         'entity_type': entity_type,
@@ -178,27 +192,48 @@ def lambda_handler(event, context):
                     organized_urls[current_photo_type][version] = url
             
             response_data = {
-                'success': True,
-                'message': 'Photo URLs refreshed successfully',
                 'entity_type': entity_type,
                 'entity_id': entity_id,
                 'photo_type': photo_type,
                 'photos_found': len(s3_keys),
                 'urls': organized_urls,
-                'expires_in_seconds': 604800,  # 7 days
-                'refreshed_at': datetime.utcnow().isoformat()
+                'url_expiry': {
+                    'expires_in_seconds': 604800,  # 7 days
+                    'refreshed_at': datetime.now(timezone.utc).isoformat() + "Z"
+                }
+            }
+            
+            execution_metadata = {
+                'total_urls_generated': len(urls),
+                'prefix_searched': prefix,
+                'bucket_name': bucket_name
             }
             
         except ClientError as e:
-            return create_error_response(500, f"Error listing S3 objects: {str(e)}")
+            return create_failure_response(
+                "S3_ERROR",
+                "Error listing S3 objects",
+                {"s3_error": str(e), "prefix": prefix}
+            )
         
         print(f"Photo URL refresh completed successfully")
         
-        return create_response(200, json.dumps(response_data))
+        return create_success_response(response_data, execution_metadata)
         
     except ValueError as e:
         print(f"Validation error: {str(e)}")
-        return create_error_response(400, str(e))
+        return create_failure_response(
+            "VALIDATION_ERROR",
+            str(e),
+            {
+                "required_fields": ["entity_type", "entity_id"],
+                "optional_fields": ["photo_type"]
+            }
+        )
     except Exception as e:
         print(f"Unexpected error: {str(e)}")
-        return create_error_response(500, 'Internal server error')
+        return create_failure_response(
+            "INTERNAL_ERROR",
+            "Photo URL refresh failed due to internal error",
+            {"error_details": str(e)}
+        )

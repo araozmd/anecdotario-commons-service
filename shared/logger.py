@@ -4,7 +4,7 @@ CloudWatch logging utilities for commons-service
 import json
 import sys
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from .config import config
 
@@ -22,7 +22,7 @@ class CommonsLogger:
     def _log(self, level: str, message: str, **kwargs):
         """Internal log method with structured format"""
         log_entry = {
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'level': level.upper(),
             'service': self.service_name,
             'environment': self.environment,

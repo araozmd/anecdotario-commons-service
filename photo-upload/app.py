@@ -5,9 +5,8 @@ Self-contained photo upload service for users, orgs, campaigns, etc.
 import json
 import os
 import base64
-import hashlib
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 import boto3
 from botocore.exceptions import ClientError
@@ -15,37 +14,47 @@ from PIL import Image
 import io
 
 
-def create_response(status_code: int, body: str, headers: dict = None) -> Dict[str, Any]:
-    """Create standardized Lambda proxy response"""
-    default_headers = {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
-        'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS'
+def create_success_response(data: Any, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Create protocol-agnostic success response for internal Lambda communication"""
+    response = {
+        "success": True,
+        "data": data
     }
     
-    if headers:
-        default_headers.update(headers)
-    
-    return {
-        'statusCode': status_code,
-        'headers': default_headers,
-        'body': body
+    # Build metadata
+    response_metadata = {
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
+        "function_name": "photo-upload"
     }
+    
+    if metadata:
+        response_metadata.update(metadata)
+    
+    response["metadata"] = response_metadata
+    
+    return response
 
 
-def create_error_response(status_code: int, message: str, details: dict = None) -> Dict[str, Any]:
-    """Create standardized error response"""
-    error_body = {
-        'error': True,
-        'message': message,
-        'timestamp': datetime.utcnow().isoformat()
+def create_failure_response(error_code: str, message: str, details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Create protocol-agnostic failure response for internal Lambda communication"""
+    response = {
+        "success": False,
+        "error": {
+            "code": error_code,
+            "message": message
+        }
     }
     
     if details:
-        error_body['details'] = details
+        response["error"]["details"] = details
     
-    return create_response(status_code, json.dumps(error_body))
+    # Build metadata
+    response["metadata"] = {
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
+        "function_name": "photo-upload"
+    }
+    
+    return response
 
 
 def validate_input(event: dict) -> Dict[str, Any]:
@@ -131,7 +140,7 @@ def upload_to_s3(bucket_name: str, entity_type: str, entity_id: str, photo_type:
     s3_client = boto3.client('s3')
     
     # Generate unique identifiers
-    timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+    timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
     unique_id = str(uuid.uuid4())[:8]
     
     # Upload each version
@@ -203,7 +212,11 @@ def lambda_handler(event, context):
         # Get bucket name from environment or parameter store
         bucket_name = os.environ.get('PHOTO_BUCKET_NAME')
         if not bucket_name:
-            return create_error_response(500, "S3 bucket not configured")
+            return create_failure_response(
+                "CONFIGURATION_ERROR",
+                "S3 bucket not configured",
+                {"missing_config": "PHOTO_BUCKET_NAME"}
+            )
         
         # Process image into multiple versions
         versions = process_image(image_data)
@@ -212,33 +225,43 @@ def lambda_handler(event, context):
         upload_result = upload_to_s3(bucket_name, entity_type, entity_id, photo_type, versions)
         
         # Generate photo ID
-        photo_id = f"{entity_type}_{entity_id}_{photo_type}_{int(datetime.utcnow().timestamp())}"
+        photo_id = f"{entity_type}_{entity_id}_{photo_type}_{int(datetime.now(timezone.utc).timestamp())}"
         
-        # Create response
+        # Create success response
         response_data = {
-            'success': True,
-            'message': 'Photo uploaded successfully',
             'photo_id': photo_id,
             'entity_type': entity_type,
             'entity_id': entity_id,
             'photo_type': photo_type,
-            'urls': upload_result['urls'],
-            'metadata': {
-                's3_keys': upload_result['s3_keys'],
-                'bucket_name': bucket_name,
-                'uploaded_by': uploaded_by,
-                'upload_source': upload_source,
-                'timestamp': datetime.utcnow().isoformat()
-            }
+            'urls': upload_result['urls']
+        }
+        
+        # Execution metadata
+        execution_metadata = {
+            's3_keys': upload_result['s3_keys'],
+            'bucket_name': bucket_name,
+            'uploaded_by': uploaded_by,
+            'upload_source': upload_source
         }
         
         print(f"Photo upload completed successfully: {photo_id}")
         
-        return create_response(200, json.dumps(response_data))
+        return create_success_response(response_data, execution_metadata)
         
     except ValueError as e:
         print(f"Validation error: {str(e)}")
-        return create_error_response(400, str(e))
+        return create_failure_response(
+            "VALIDATION_ERROR",
+            str(e),
+            {
+                "field": "input_validation",
+                "required_fields": ["image", "entity_type", "entity_id", "photo_type"]
+            }
+        )
     except Exception as e:
         print(f"Unexpected error: {str(e)}")
-        return create_error_response(500, 'Internal server error')
+        return create_failure_response(
+            "INTERNAL_ERROR",
+            "Photo upload failed due to internal error",
+            {"error_details": str(e)}
+        )

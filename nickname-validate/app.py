@@ -4,41 +4,51 @@ Self-contained nickname validation service for users, orgs, campaigns, etc.
 """
 import json
 import re
-from datetime import datetime
-from typing import Dict, Any, List
+from datetime import datetime, timezone
+from typing import Dict, Any, List, Optional
 
 
-def create_response(status_code: int, body: str, headers: dict = None) -> Dict[str, Any]:
-    """Create standardized Lambda proxy response"""
-    default_headers = {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
-        'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS'
+def create_success_response(data: Any, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Create protocol-agnostic success response for internal Lambda communication"""
+    response = {
+        "success": True,
+        "data": data
     }
     
-    if headers:
-        default_headers.update(headers)
-    
-    return {
-        'statusCode': status_code,
-        'headers': default_headers,
-        'body': body
+    # Build metadata
+    response_metadata = {
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
+        "function_name": "nickname-validate"
     }
+    
+    if metadata:
+        response_metadata.update(metadata)
+    
+    response["metadata"] = response_metadata
+    
+    return response
 
 
-def create_error_response(status_code: int, message: str, details: dict = None) -> Dict[str, Any]:
-    """Create standardized error response"""
-    error_body = {
-        'error': True,
-        'message': message,
-        'timestamp': datetime.utcnow().isoformat()
+def create_failure_response(error_code: str, message: str, details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Create protocol-agnostic failure response for internal Lambda communication"""
+    response = {
+        "success": False,
+        "error": {
+            "code": error_code,
+            "message": message
+        }
     }
     
     if details:
-        error_body['details'] = details
+        response["error"]["details"] = details
     
-    return create_response(status_code, json.dumps(error_body))
+    # Build metadata
+    response["metadata"] = {
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
+        "function_name": "nickname-validate"
+    }
+    
+    return response
 
 
 # Reserved words for different entity types
@@ -195,7 +205,7 @@ def lambda_handler(event, context):
             rules = get_validation_rules(entity_type)
             
             print(f"Returning validation rules for entity type: {entity_type}")
-            return create_response(200, json.dumps(rules))
+            return create_success_response(rules, {"operation_mode": "get_rules"})
         
         else:
             # Mode 1: Validate nickname
@@ -206,31 +216,40 @@ def lambda_handler(event, context):
             
             validation_result = validate_nickname(nickname, entity_type)
             
-            if validation_result['valid']:
-                response_data = {
-                    'success': True,
-                    'valid': True,
-                    'message': f'Nickname "{nickname}" is valid',
-                    'nickname': nickname,
-                    'entity_type': entity_type
-                }
-            else:
-                response_data = {
-                    'success': True,
-                    'valid': False,
-                    'message': f'Nickname "{nickname}" is not valid',
-                    'nickname': nickname,
-                    'entity_type': entity_type,
+            response_data = {
+                'valid': validation_result['valid'],
+                'nickname': nickname,
+                'entity_type': entity_type
+            }
+            
+            execution_metadata = {
+                'operation_mode': 'validate_nickname',
+                'validation_rules_applied': len(validation_result.get('errors', [])) + (1 if validation_result['valid'] else 0)
+            }
+            
+            if not validation_result['valid']:
+                response_data['validation_errors'] = {
                     'errors': validation_result['errors'],
                     'hints': validation_result['hints']
                 }
             
             print(f"Nickname validation completed: {validation_result['valid']}")
-            return create_response(200, json.dumps(response_data))
+            return create_success_response(response_data, execution_metadata)
         
     except ValueError as e:
         print(f"Validation error: {str(e)}")
-        return create_error_response(400, str(e))
+        return create_failure_response(
+            "VALIDATION_ERROR",
+            str(e),
+            {
+                "required_fields": ["nickname"],
+                "optional_fields": ["entity_type", "get_rules"]
+            }
+        )
     except Exception as e:
         print(f"Unexpected error: {str(e)}")
-        return create_error_response(500, 'Internal server error')
+        return create_failure_response(
+            "INTERNAL_ERROR",
+            "Nickname validation failed due to internal error",
+            {"error_details": str(e)}
+        )

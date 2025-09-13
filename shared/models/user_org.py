@@ -2,7 +2,7 @@
 PynamoDB model for User-Organization entities
 Unified model for users and organizations with shared nickname space
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from pynamodb.models import Model
 from pynamodb.attributes import (
@@ -104,8 +104,8 @@ class UserOrg(Model):
     stats = JSONAttribute(default=dict)  # Follower counts, campaign counts, etc.
     
     # Timestamps
-    created_at = UTCDateTimeAttribute(default=datetime.utcnow)
-    updated_at = UTCDateTimeAttribute(default=datetime.utcnow)
+    created_at = UTCDateTimeAttribute(default=lambda: datetime.now(timezone.utc))
+    updated_at = UTCDateTimeAttribute(default=lambda: datetime.now(timezone.utc))
     last_login = UTCDateTimeAttribute(null=True)
     
     # Admin fields
@@ -118,7 +118,7 @@ class UserOrg(Model):
     
     def save(self, **kwargs):
         """Override save to update timestamp"""
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
         return super().save(**kwargs)
     
     @classmethod

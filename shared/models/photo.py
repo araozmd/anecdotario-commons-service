@@ -2,7 +2,7 @@
 PynamoDB model for Photo entities
 """
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from pynamodb.models import Model
 from pynamodb.attributes import (
@@ -83,8 +83,8 @@ class Photo(Model):
     upload_ip = UnicodeAttribute(null=True)
     
     # Timestamps
-    created_at = UTCDateTimeAttribute(default=datetime.utcnow)
-    updated_at = UTCDateTimeAttribute(default=datetime.utcnow)
+    created_at = UTCDateTimeAttribute(default=lambda: datetime.now(timezone.utc))
+    updated_at = UTCDateTimeAttribute(default=lambda: datetime.now(timezone.utc))
     
     # Status
     is_active = BooleanAttribute(default=True)
@@ -95,7 +95,7 @@ class Photo(Model):
     
     def save(self, **kwargs):
         """Override save to update timestamp"""
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
         return super().save(**kwargs)
     
     @classmethod
