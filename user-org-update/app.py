@@ -9,17 +9,29 @@ import sys
 # Add shared directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-from shared.decorators import direct_lambda_handler
 from shared.services.service_container import get_service
-from shared.utils import create_response
-from shared.constants import HTTPConstants
+from shared.utils import create_success_response, create_failure_response
 from shared.exceptions import ValidationError, EntityNotFoundError
-@direct_lambda_handler(
-    required_fields=['nickname'],  # Only nickname is required for updates
-    entity_validation=False,
-    photo_type_validation=False,
-    log_requests=True
-)
+from datetime import datetime
+from typing import Dict, Any, Optional
+def validate_input(event: dict) -> Dict[str, Any]:
+    """Validate input parameters"""
+    # Handle both direct Lambda invocation and API Gateway formats
+    if 'body' in event:
+        try:
+            body = json.loads(event['body']) if isinstance(event['body'], str) else event['body']
+        except json.JSONDecodeError:
+            raise ValueError("Invalid JSON in request body")
+    else:
+        body = event
+    
+    # Check required fields
+    if 'nickname' not in body or not body['nickname']:
+        raise ValueError("Missing required field: nickname")
+    
+    return body
+
+
 def lambda_handler(event, context):
     """
     Update user or organization data
@@ -47,8 +59,9 @@ def lambda_handler(event, context):
     
     Note: nickname and user_type cannot be changed after creation
     """
-    # Extract validated parameters
-    params = event
+    try:
+        # Validate input parameters
+        params = validate_input(event)
     
     nickname = params['nickname']
     
@@ -87,14 +100,13 @@ def lambda_handler(event, context):
             updates['is_certified'] = certification.get('is_certified', False)
         
         if not updates:
-            return create_response(
-                HTTPConstants.BAD_REQUEST,
-                json.dumps({
-                    'success': False,
-                    'error': 'No fields provided for update',
-                    'updatable_fields': ['full_name', 'avatar_thumbnail_url', 'email', 'phone', 'website', 'certification']
-                }),
-                event
+            return create_failure_response(
+                "VALIDATION_ERROR",
+                "No fields provided for update",
+                {
+                    'updatable_fields': ['full_name', 'avatar_thumbnail_url', 'email', 'phone', 'website', 'certification'],
+                    'nickname': nickname
+                }
             )
         
         # Update the entity
@@ -108,52 +120,61 @@ def lambda_handler(event, context):
         
         # Return success response
         response_data = {
-            'success': True,
-            'message': 'Entity updated successfully',
+            'entity': result,
             'nickname': nickname,
             'updated_fields': list(updates.keys()),
-            'entity': result
+            'operation': 'update'
         }
         
-        return create_response(
-            HTTPConstants.OK,
-            json.dumps(response_data),
-            event
-        )
+        execution_metadata = {
+            'updated_field_count': len(updates.keys()),
+            'updated_by': params.get('updated_by')
+        }
+        
+        print(f"Successfully updated entity: {nickname}")
+        return create_success_response(response_data, execution_metadata)
         
     except EntityNotFoundError as e:
         print(f"Entity not found: {str(e)}")
         
-        return create_response(
-            HTTPConstants.NOT_FOUND,
-            json.dumps({
-                'success': False,
-                'error': str(e),
-                'error_type': 'entity_not_found',
-                'nickname': nickname
-            }),
-            event
+        return create_failure_response(
+            "NOT_FOUND",
+            str(e),
+            {
+                'nickname': nickname,
+                'operation': 'update'
+            }
         )
         
     except ValidationError as e:
         print(f"Validation error updating entity: {str(e)}")
         
-        error_response = {
-            'success': False,
-            'error': str(e),
-            'error_type': 'validation_error'
-        }
+        details = {'nickname': nickname}
         
         # Include validation details if available
         if hasattr(e, 'details') and e.details:
-            error_response.update(e.details)
+            details.update(e.details)
         
-        return create_response(
-            HTTPConstants.BAD_REQUEST,
-            json.dumps(error_response),
-            event
+        return create_failure_response(
+            "VALIDATION_ERROR",
+            str(e),
+            details
         )
         
+    except ValueError as e:
+        print(f"Input validation error: {str(e)}")
+        return create_failure_response(
+            "VALIDATION_ERROR",
+            str(e),
+            {
+                "required_fields": ["nickname"],
+                "updatable_fields": ["full_name", "avatar_thumbnail_url", "email", "phone", "website", "certification"]
+            }
+        )
     except Exception as e:
         print(f"Unexpected error updating entity: {str(e)}")
-        raise  # Let the decorator handle it
+        return create_failure_response(
+            "INTERNAL_ERROR",
+            "Entity update failed due to internal error",
+            {"error_details": str(e)}
+        )

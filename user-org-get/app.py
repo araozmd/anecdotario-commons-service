@@ -9,19 +9,28 @@ import sys
 # Add shared directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-from shared.decorators import direct_lambda_handler
 from shared.services.service_container import get_service
-from shared.utils import create_response, create_error_response
-from shared.constants import HTTPConstants
+from shared.utils import create_success_response, create_failure_response
 from shared.exceptions import EntityNotFoundError
+from datetime import datetime
+from typing import Dict, Any, Optional
 
 
-@direct_lambda_handler(
-    required_fields=[],  # No required fields - conditional validation
-    entity_validation=False,  # Manual validation based on operation
-    photo_type_validation=False,
-    log_requests=True
-)
+def validate_input(event: dict) -> Dict[str, Any]:
+    """Validate input parameters"""
+    # Handle both direct Lambda invocation and API Gateway formats
+    if 'body' in event:
+        try:
+            body = json.loads(event['body']) if isinstance(event['body'], str) else event['body']
+        except json.JSONDecodeError:
+            raise ValueError("Invalid JSON in request body")
+    else:
+        body = event
+    
+    # No required fields for get operations - all are optional
+    return body
+
+
 def lambda_handler(event, context):
     """
     Get user/organization data with flexible query options
@@ -37,8 +46,9 @@ def lambda_handler(event, context):
     Mode 3 - List entities by type:
     {"user_type": "user", "limit": 20}
     """
-    # Get parameters from event (direct invocation)
-    params = event
+    try:
+        # Validate input parameters
+        params = validate_input(event)
     
     # Extract parameters
     nickname = params.get('nickname')
@@ -56,16 +66,21 @@ def lambda_handler(event, context):
             
             result = user_org_service.get_entity(nickname)
             if not result:
-                return create_error_response(
-                    HTTPConstants.NOT_FOUND,
+                return create_failure_response(
+                    "NOT_FOUND",
                     f"Entity '{nickname}' not found",
-                    event,
-                    {'nickname': nickname}
+                    {'nickname': nickname, 'operation': 'get_by_nickname'}
                 )
             
             response_data = {
-                'success': True,
-                'entity': result
+                'entity': result,
+                'operation_mode': 'get_by_nickname',
+                'nickname': nickname
+            }
+            
+            execution_metadata = {
+                'query_type': 'get_by_nickname',
+                'found_entity_type': result.get('user_type')
             }
             
         elif search:
@@ -78,11 +93,16 @@ def lambda_handler(event, context):
             )
             
             response_data = {
-                'success': True,
-                'search_query': search,
                 'entities': results['results'],
+                'operation_mode': 'search_entities',
+                'search_query': search,
                 'total_returned': len(results['results']),
                 'limit': limit
+            }
+            
+            execution_metadata = {
+                'query_type': 'search_entities',
+                'results_count': len(results['results'])
             }
             
         else:
@@ -91,11 +111,13 @@ def lambda_handler(event, context):
             
             # Validate user_type if provided
             if user_type and user_type not in ['user', 'organization']:
-                return create_error_response(
-                    HTTPConstants.BAD_REQUEST,
+                return create_failure_response(
+                    "VALIDATION_ERROR",
                     'Invalid user_type. Must be "user" or "organization"',
-                    event,
-                    {'valid_user_types': ['user', 'organization']}
+                    {
+                        'valid_user_types': ['user', 'organization'],
+                        'provided_user_type': user_type
+                    }
                 )
             
             results = user_org_service.search_entities(
@@ -105,21 +127,36 @@ def lambda_handler(event, context):
             )
             
             response_data = {
-                'success': True,
                 'entities': results['results'],
+                'operation_mode': 'list_entities',
                 'total_returned': len(results['results']),
                 'entity_type': user_type,
                 'limit': limit
             }
+            
+            execution_metadata = {
+                'query_type': 'list_entities',
+                'filter_entity_type': user_type,
+                'results_count': len(results['results'])
+            }
         
         print(f"Successfully processed request")
         
-        return create_response(
-            HTTPConstants.OK,
-            json.dumps(response_data),
-            event
-        )
+        return create_success_response(response_data, execution_metadata)
         
+    except ValueError as e:
+        print(f"Input validation error: {str(e)}")
+        return create_failure_response(
+            "VALIDATION_ERROR",
+            str(e),
+            {
+                "supported_operations": ["get_by_nickname", "search_entities", "list_entities"]
+            }
+        )
     except Exception as e:
         print(f"Unexpected error in user-org get: {str(e)}")
-        raise  # Let the decorator handle it
+        return create_failure_response(
+            "INTERNAL_ERROR",
+            "Entity retrieval failed due to internal error",
+            {"error_details": str(e)}
+        )

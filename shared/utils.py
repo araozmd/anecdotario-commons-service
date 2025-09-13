@@ -14,7 +14,7 @@ from .config import config
 from .logger import logger
 
 
-def create_response(status_code: int, body: str, event: dict = None, headers: dict = None) -> Dict[str, Any]:
+def create_response(status_code: int, body: str, event: Optional[dict] = None, headers: Optional[dict] = None) -> Dict[str, Any]:
     """
     Create standardized Lambda proxy response
     
@@ -44,7 +44,7 @@ def create_response(status_code: int, body: str, event: dict = None, headers: di
     }
 
 
-def create_error_response(status_code: int, message: str, event: dict = None, details: dict = None) -> Dict[str, Any]:
+def create_error_response(status_code: int, message: str, event: Optional[dict] = None, details: Optional[dict] = None) -> Dict[str, Any]:
     """
     Create standardized error response
     
@@ -102,7 +102,7 @@ def generate_photo_id() -> str:
     return f"photo_{timestamp}_{unique_id}"
 
 
-def generate_presigned_url(bucket_name: str, s3_key: str, expiry_seconds: int = None) -> Optional[str]:
+def generate_presigned_url(bucket_name: str, s3_key: str, expiry_seconds: Optional[int] = None) -> Optional[str]:
     """
     Generate presigned URL for S3 object
     
@@ -148,7 +148,7 @@ def generate_public_url(bucket_name: str, s3_key: str) -> str:
     return f"https://{bucket_name}.s3.amazonaws.com/{s3_key}"
 
 
-def create_success_response(data: Any, metadata: Optional[Dict[str, Any]] = None, function_name: str = None) -> Dict[str, Any]:
+def create_success_response(data: Any, metadata: Optional[Dict[str, Any]] = None, function_name: Optional[str] = None) -> Dict[str, Any]:
     """
     Create protocol-agnostic success response for internal Lambda communication
     
@@ -181,7 +181,7 @@ def create_success_response(data: Any, metadata: Optional[Dict[str, Any]] = None
     return response
 
 
-def create_failure_response(error_code: str, message: str, details: Optional[Dict[str, Any]] = None, function_name: str = None) -> Dict[str, Any]:
+def create_failure_response(error_code: str, message: str, details: Optional[Dict[str, Any]] = None, function_name: Optional[str] = None) -> Dict[str, Any]:
     """
     Create protocol-agnostic failure response for internal Lambda communication
     
@@ -361,7 +361,7 @@ def parse_base64_image(image_data: str) -> bytes:
         raise ValueError(f"Invalid base64 image data: {str(e)}")
 
 
-def validate_entity_type(entity_type: str, valid_types: list = None) -> bool:
+def validate_entity_type(entity_type: str, valid_types: Optional[list] = None) -> bool:
     """
     Validate entity type
     
@@ -379,7 +379,7 @@ def validate_entity_type(entity_type: str, valid_types: list = None) -> bool:
     return entity_type.lower() in [t.lower() for t in valid_types]
 
 
-def validate_photo_type(photo_type: str, entity_type: str = None) -> bool:
+def validate_photo_type(photo_type: str, entity_type: Optional[str] = None) -> bool:
     """
     Validate photo type for entity
     

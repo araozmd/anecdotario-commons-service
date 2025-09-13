@@ -9,17 +9,29 @@ import sys
 # Add shared directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-from shared.decorators import direct_lambda_handler
 from shared.services.service_container import get_service
-from shared.utils import create_response
-from shared.constants import HTTPConstants
+from shared.utils import create_success_response, create_failure_response
 from shared.exceptions import EntityNotFoundError
-@direct_lambda_handler(
-    required_fields=['nickname'],
-    entity_validation=False,
-    photo_type_validation=False,
-    log_requests=True
-)
+from datetime import datetime
+from typing import Dict, Any, Optional
+def validate_input(event: dict) -> Dict[str, Any]:
+    """Validate input parameters"""
+    # Handle both direct Lambda invocation and API Gateway formats
+    if 'body' in event:
+        try:
+            body = json.loads(event['body']) if isinstance(event['body'], str) else event['body']
+        except json.JSONDecodeError:
+            raise ValueError("Invalid JSON in request body")
+    else:
+        body = event
+    
+    # Check required fields
+    if 'nickname' not in body or not body['nickname']:
+        raise ValueError("Missing required field: nickname")
+    
+    return body
+
+
 def lambda_handler(event, context):
     """
     Delete user or organization
@@ -33,8 +45,9 @@ def lambda_handler(event, context):
     Soft delete (default): Sets status to 'inactive', preserves data
     Hard delete: Permanently removes entity from database
     """
-    # Extract validated parameters
-    params = event
+    try:
+        # Validate input parameters
+        params = validate_input(event)
     
     nickname = params['nickname']
     permanent = params.get('permanent', False)
@@ -64,49 +77,65 @@ def lambda_handler(event, context):
         print(f"Successfully performed {deletion_type} deletion of {entity_type}: {nickname}")
         
         # Return success response
+        deletion_type = 'permanent' if permanent else 'soft'
+        
+        response_data = {
+            'nickname': nickname,
+            'deletion_type': deletion_type,
+            'entity_type': entity_type,
+            'operation': 'delete'
+        }
+        
         if permanent:
-            response_data = {
-                'success': True,
-                'message': f'{entity_type.title()} permanently deleted',
-                'nickname': nickname,
-                'deletion_type': 'permanent',
+            response_data.update({
                 'permanently_deleted': True,
                 'deleted_at': result.get('deleted_at')
-            }
+            })
         else:
-            response_data = {
-                'success': True,
-                'message': f'{entity_type.title()} deactivated',
-                'nickname': nickname,
-                'deletion_type': 'soft',
+            response_data.update({
                 'deactivated': True,
                 'status': 'inactive',
                 'deactivated_at': result.get('deactivated_at')
-            }
+            })
         
-        # Add any additional result data
-        response_data.update(result)
+        execution_metadata = {
+            'deletion_type': deletion_type,
+            'entity_type': entity_type
+        }
         
-        return create_response(
-            HTTPConstants.OK,
-            json.dumps(response_data),
-            event
-        )
+        # Add any additional result data to metadata
+        if result:
+            execution_metadata.update(result)
+        
+        print(f"Successfully performed {deletion_type} deletion of {entity_type}: {nickname}")
+        return create_success_response(response_data, execution_metadata)
         
     except EntityNotFoundError as e:
         print(f"Entity not found for deletion: {str(e)}")
         
-        return create_response(
-            HTTPConstants.NOT_FOUND,
-            json.dumps({
-                'success': False,
-                'error': str(e),
-                'error_type': 'entity_not_found',
-                'nickname': nickname
-            }),
-            event
+        return create_failure_response(
+            "NOT_FOUND",
+            str(e),
+            {
+                'nickname': nickname,
+                'operation': 'delete'
+            }
         )
         
+    except ValueError as e:
+        print(f"Input validation error: {str(e)}")
+        return create_failure_response(
+            "VALIDATION_ERROR",
+            str(e),
+            {
+                "required_fields": ["nickname"],
+                "optional_fields": ["permanent"]
+            }
+        )
     except Exception as e:
         print(f"Unexpected error deleting entity: {str(e)}")
-        raise  # Let the decorator handle it
+        return create_failure_response(
+            "INTERNAL_ERROR",
+            "Entity deletion failed due to internal error",
+            {"error_details": str(e)}
+        )

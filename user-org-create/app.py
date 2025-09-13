@@ -9,17 +9,31 @@ import sys
 # Add shared directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-from shared.decorators import api_gateway_handler
 from shared.services.service_container import get_service
-from shared.utils import create_response
-from shared.constants import HTTPConstants
+from shared.utils import create_success_response, create_failure_response
 from shared.exceptions import ValidationError, DuplicateEntityError
-@direct_lambda_handler(
-    required_fields=['nickname', 'full_name', 'user_type'],
-    entity_validation=False,  # We'll validate user_type manually
-    photo_type_validation=False,
-    log_requests=True
-)
+from datetime import datetime
+from typing import Dict, Any, Optional
+def validate_input(event: dict) -> Dict[str, Any]:
+    """Validate input parameters"""
+    # Handle both direct Lambda invocation and API Gateway formats
+    if 'body' in event:
+        try:
+            body = json.loads(event['body']) if isinstance(event['body'], str) else event['body']
+        except json.JSONDecodeError:
+            raise ValueError("Invalid JSON in request body")
+    else:
+        body = event
+    
+    # Check required fields
+    required_fields = ['nickname', 'full_name', 'user_type']
+    for field in required_fields:
+        if field not in body or not body[field]:
+            raise ValueError(f"Missing required field: {field}")
+    
+    return body
+
+
 def lambda_handler(event, context):
     """
     Create a new user or organization
@@ -37,8 +51,9 @@ def lambda_handler(event, context):
         "created_by": "admin_user"     # Optional
     }
     """
-    # Extract validated parameters (decorators guarantee these exist)
-    params = event
+    try:
+        # Validate input parameters
+        params = validate_input(event)
     
     # Extract required fields
     nickname = params['nickname']
@@ -53,25 +68,19 @@ def lambda_handler(event, context):
     website = params.get('website')
     created_by = params.get('created_by')
     
-    # Validate user_type manually
-    valid_user_types = ['user', 'organization']
-    if user_type not in valid_user_types:
-        return create_response(
-            HTTPConstants.BAD_REQUEST,
-            json.dumps({
-                'success': False,
-                'error': f'Invalid user_type. Must be one of: {", ".join(valid_user_types)}',
-                'valid_user_types': valid_user_types
-            }),
-            event
-        )
+        # Validate user_type manually
+        valid_user_types = ['user', 'organization']
+        if user_type not in valid_user_types:
+            return create_failure_response(
+                "VALIDATION_ERROR",
+                f'Invalid user_type. Must be one of: {", ".join(valid_user_types)}',
+                {'valid_user_types': valid_user_types, 'provided_user_type': user_type}
+            )
     
-    print(f"Creating {user_type}: {nickname} ({full_name})")
-    
-    # Get user-org service from container (dependency injection)
-    user_org_service = get_service('user_org_service')
-    
-    try:
+        print(f"Creating {user_type}: {nickname} ({full_name})")
+        
+        # Get user-org service from container (dependency injection)
+        user_org_service = get_service('user_org_service')
         # Create the entity
         result = user_org_service.create_entity(
             nickname=nickname,
@@ -89,50 +98,60 @@ def lambda_handler(event, context):
         
         # Return success response
         response_data = {
-            'success': True,
-            'message': f'{user_type.title()} created successfully',
-            'entity': result
+            'entity': result,
+            'user_type': user_type,
+            'operation': 'create'
         }
         
-        return create_response(
-            HTTPConstants.CREATED,
-            json.dumps(response_data),
-            event
-        )
+        execution_metadata = {
+            'created_entity_type': user_type,
+            'created_nickname': result.get('nickname')
+        }
+        
+        print(f"Successfully created {user_type}: {result['nickname']}")
+        return create_success_response(response_data, execution_metadata)
         
     except ValidationError as e:
         print(f"Validation error creating {user_type}: {str(e)}")
         
-        error_response = {
-            'success': False,
-            'error': str(e),
-            'error_type': 'validation_error'
-        }
+        details = {'user_type': user_type, 'nickname': nickname}
         
         # Include validation details if available
         if hasattr(e, 'details') and e.details:
-            error_response.update(e.details)
+            details.update(e.details)
         
-        return create_response(
-            HTTPConstants.BAD_REQUEST,
-            json.dumps(error_response),
-            event
+        return create_failure_response(
+            "VALIDATION_ERROR",
+            str(e),
+            details
         )
         
     except DuplicateEntityError as e:
         print(f"Duplicate nickname error: {str(e)}")
         
-        return create_response(
-            HTTPConstants.CONFLICT,
-            json.dumps({
-                'success': False,
-                'error': str(e),
-                'error_type': 'duplicate_entity',
-                'nickname': nickname
-            }),
-            event
+        return create_failure_response(
+            "DUPLICATE_ENTITY",
+            str(e),
+            {
+                'nickname': nickname,
+                'user_type': user_type,
+                'conflict_type': 'nickname_already_exists'
+            }
         )
         
+    except ValueError as e:
+        print(f"Input validation error: {str(e)}")
+        return create_failure_response(
+            "VALIDATION_ERROR",
+            str(e),
+            {
+                "required_fields": ["nickname", "full_name", "user_type"]
+            }
+        )
     except Exception as e:
-        print(f"Unexpected error creating {user_type}: {str(e)}")
-        raise  # Let the decorator handle it
+        print(f"Unexpected error creating entity: {str(e)}")
+        return create_failure_response(
+            "INTERNAL_ERROR",
+            "Entity creation failed due to internal error",
+            {"error_details": str(e)}
+        )
