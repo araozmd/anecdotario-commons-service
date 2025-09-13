@@ -177,84 +177,154 @@ components:
               type: number
               description: Query execution time in milliseconds
           
+    PhotoUploadRequest:
+      type: object
+      required:
+        - image
+        - entity_type
+        - entity_id
+        - photo_type
+      properties:
+        image:
+          type: string
+          description: Base64 encoded image data with data URL prefix
+          example: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD..."
+        entity_type:
+          type: string
+          description: Type of entity the photo belongs to
+          enum:
+            - user
+            - org
+            - campaign
+        entity_id:
+          type: string
+          description: Unique identifier for the entity
+          example: "john_doe"
+        photo_type:
+          type: string
+          description: Type of photo being uploaded
+          enum:
+            - profile
+            - logo
+            - banner
+            - gallery
+            - thumbnail
+        uploaded_by:
+          type: string
+          description: User ID of the uploader (optional)
+          example: "user-123"
+        upload_source:
+          type: string
+          description: Source service performing the upload
+          enum:
+            - user-service
+            - org-service
+            - campaign-service
+            - api
+            - admin
+          default: api
+
     PhotoUploadResponse:
       type: object
       required:
-        - message
+        - success
         - photo_id
+        - entity_type
+        - entity_id
+        - photo_type
       properties:
-        message:
-          type: string
-          example: "Photo uploaded successfully"
+        success:
+          type: boolean
+          description: Whether the upload was successful
         photo_id:
           type: string
           description: Unique identifier for the uploaded photo
+          example: "user_john_doe_profile_1694567890"
         entity_type:
           type: string
           description: Entity type the photo belongs to
+          enum:
+            - user
+            - org
+            - campaign
         entity_id:
           type: string
           description: Entity identifier
+          example: "john_doe"
         photo_type:
           type: string
           description: Type of photo uploaded
-        urls:
+          enum:
+            - profile
+            - logo
+            - banner
+            - gallery
+            - thumbnail
+        thumbnail_url:
+          type: string
+          format: uri
+          description: Public URL for thumbnail version (150x150)
+          nullable: true
+        standard_url:
+          type: string
+          format: uri
+          description: Presigned URL for standard version (320x320)
+          nullable: true
+        high_res_url:
+          type: string
+          format: uri
+          description: Presigned URL for high resolution version (800x800)
+          nullable: true
+        versions:
           type: object
+          description: Detailed information about each image version
+          nullable: true
           properties:
-            thumbnail_url:
-              type: string
-              format: uri
-              description: Public URL for thumbnail version (150x150)
-            standard_url:
-              type: string
-              format: uri
-              description: Presigned URL for standard version (320x320)
-            high_res_url:
-              type: string
-              format: uri
-              description: Presigned URL for high resolution version (800x800)
-        metadata:
-          type: object
-          properties:
-            original_size:
+            thumbnail:
               type: object
               properties:
-                width:
+                size:
                   type: integer
-                height:
-                  type: integer
-                file_size:
-                  type: integer
-            processing_info:
-              type: object
-              properties:
-                cropped:
-                  type: boolean
-                  description: Whether image was cropped to square
-                resized:
-                  type: boolean
-                  description: Whether image was resized
-                format_converted:
-                  type: boolean
-                  description: Whether image format was converted
-            storage_info:
-              type: object
-              properties:
-                bucket_name:
+                  description: File size in bytes
+                dimensions:
                   type: string
-                s3_keys:
-                  type: object
-                  properties:
-                    thumbnail:
-                      type: string
-                    standard:
-                      type: string
-                    high_res:
-                      type: string
-        created_at:
-          type: integer
-          format: int64
-          description: Unix timestamp when photo was uploaded
+                  description: Image dimensions
+                  example: "150x150"
+            standard:
+              type: object
+              properties:
+                size:
+                  type: integer
+                  description: File size in bytes
+                dimensions:
+                  type: string
+                  description: Image dimensions
+                  example: "320x320"
+            high_res:
+              type: object
+              properties:
+                size:
+                  type: integer
+                  description: File size in bytes
+                dimensions:
+                  type: string
+                  description: Image dimensions
+                  example: "800x800"
+        processing_time:
+          type: number
+          description: Time taken to process the image in seconds
+          nullable: true
+          example: 0.542
+        size_reduction:
+          type: string
+          description: Human-readable size reduction information
+          nullable: true
+          example: "75.2% (from 1048576 to 260000 bytes)"
+        message:
+          type: string
+          description: Success or error message
+          nullable: true
+          example: "Photo uploaded successfully in 0.542s"
           
     PhotoDeleteResponse:
       type: object

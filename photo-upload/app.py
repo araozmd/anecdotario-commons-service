@@ -6,61 +6,36 @@ import json
 import os
 import base64
 import uuid
+import time
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 import boto3
 from botocore.exceptions import ClientError
 from PIL import Image
 import io
+from anecdotario_commons.contracts import PhotoUploadResponse, PhotoUploadRequest
 
 
-def create_success_response(data: Any, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Create protocol-agnostic success response for internal Lambda communication"""
-    response = {
-        "success": True,
-        "data": data
-    }
-    
-    # Build metadata
-    response_metadata = {
-        "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
-        "function_name": "photo-upload"
-    }
-    
-    if metadata:
-        response_metadata.update(metadata)
-    
-    response["metadata"] = response_metadata
-    
-    return response
+def create_failure_response(message: str, entity_type: str = "user", entity_id: str = "", photo_type: str = "profile") -> Dict[str, Any]:
+    """Create failure response using PhotoUploadResponse contract"""
+    response = PhotoUploadResponse(
+        success=False,
+        photo_id="",
+        entity_type=entity_type,
+        entity_id=entity_id,
+        photo_type=photo_type,
+        message=message
+    )
+    return response.to_dict()
 
 
-def create_failure_response(error_code: str, message: str, details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Create protocol-agnostic failure response for internal Lambda communication"""
-    response = {
-        "success": False,
-        "error": {
-            "code": error_code,
-            "message": message
-        }
-    }
-    
-    if details:
-        response["error"]["details"] = details
-    
-    # Build metadata
-    response["metadata"] = {
-        "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
-        "function_name": "photo-upload"
-    }
-    
-    return response
+def validate_input(event: dict) -> PhotoUploadRequest:
+    """
+    Validate input parameters and return PhotoUploadRequest contract object.
 
-
-def validate_input(event: dict) -> Dict[str, Any]:
-    """Validate input parameters"""
-    required_fields = ['image', 'entity_type', 'entity_id', 'photo_type']
-    
+    Performs runtime validation of Literal types since dataclass type hints
+    don't enforce validation at runtime.
+    """
     # Handle both direct Lambda invocation and API Gateway formats
     if 'body' in event:
         try:
@@ -69,26 +44,51 @@ def validate_input(event: dict) -> Dict[str, Any]:
             raise ValueError("Invalid JSON in request body")
     else:
         body = event
-    
-    # Check required fields
-    for field in required_fields:
+
+    # Validate required fields before creating the request
+    required_fields = {
+        'image': 'Missing required field: image',
+        'entity_type': 'Missing required field: entity_type',
+        'entity_id': 'Missing required field: entity_id',
+        'photo_type': 'Missing required field: photo_type'
+    }
+
+    for field, error_msg in required_fields.items():
         if field not in body or not body[field]:
-            raise ValueError(f"Missing required field: {field}")
-    
-    # Validate entity_type
+            raise ValueError(error_msg)
+
+    # Validate enum values manually (since Literal types don't enforce runtime validation)
     valid_entity_types = ['user', 'org', 'campaign']
     if body['entity_type'] not in valid_entity_types:
-        raise ValueError(f"Invalid entity_type. Must be one of: {', '.join(valid_entity_types)}")
-    
-    # Validate photo_type
-    valid_photo_types = ['profile', 'logo', 'banner', 'gallery']
+        raise ValueError(f"Invalid entity_type '{body['entity_type']}'. Must be one of: {valid_entity_types}")
+
+    valid_photo_types = ['profile', 'logo', 'banner', 'gallery', 'thumbnail']
     if body['photo_type'] not in valid_photo_types:
-        raise ValueError(f"Invalid photo_type. Must be one of: {', '.join(valid_photo_types)}")
-    
-    return body
+        raise ValueError(f"Invalid photo_type '{body['photo_type']}'. Must be one of: {valid_photo_types}")
+
+    # Validate upload_source if provided
+    if 'upload_source' in body and body['upload_source']:
+        valid_upload_sources = ['user-service', 'org-service', 'campaign-service', 'api', 'admin']
+        if body['upload_source'] not in valid_upload_sources:
+            raise ValueError(f"Invalid upload_source '{body['upload_source']}'. Must be one of: {valid_upload_sources}")
+
+    # Create PhotoUploadRequest using the contract structure
+    try:
+        request = PhotoUploadRequest(
+            image=body['image'],
+            entity_type=body['entity_type'],
+            entity_id=body['entity_id'],
+            photo_type=body['photo_type'],
+            uploaded_by=body.get('uploaded_by'),
+            upload_source=body.get('upload_source', 'api')  # Default to 'api' as per contract
+        )
+        return request
+
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"Invalid request parameters: {str(e)}")
 
 
-def process_image(image_data: str) -> Dict[str, bytes]:
+def process_image(image_data: str) -> tuple[Dict[str, bytes], Dict[str, int]]:
     """Process image into multiple versions"""
     try:
         # Remove data URL prefix if present
@@ -105,31 +105,41 @@ def process_image(image_data: str) -> Dict[str, bytes]:
         if img.mode != 'RGB':
             img = img.convert('RGB')
         
+        # Get original size for metrics
+        original_size = len(image_bytes)
+
         # Process different versions
         versions = {}
-        
+        sizes = {}
+
         # Thumbnail: 150x150 square
         thumb = img.copy()
         thumb.thumbnail((150, 150), Image.Resampling.LANCZOS)
         thumb_buffer = io.BytesIO()
         thumb.save(thumb_buffer, format='JPEG', quality=85, optimize=True)
         versions['thumbnail'] = thumb_buffer.getvalue()
-        
+        sizes['thumbnail'] = len(versions['thumbnail'])
+
         # Standard: 320x320 square
         standard = img.copy()
         standard.thumbnail((320, 320), Image.Resampling.LANCZOS)
         standard_buffer = io.BytesIO()
         standard.save(standard_buffer, format='JPEG', quality=90, optimize=True)
         versions['standard'] = standard_buffer.getvalue()
-        
+        sizes['standard'] = len(versions['standard'])
+
         # High resolution: 800x800 square
         high_res = img.copy()
         high_res.thumbnail((800, 800), Image.Resampling.LANCZOS)
         high_res_buffer = io.BytesIO()
         high_res.save(high_res_buffer, format='JPEG', quality=95, optimize=True)
         versions['high_res'] = high_res_buffer.getvalue()
-        
-        return versions
+        sizes['high_res'] = len(versions['high_res'])
+
+        # Add original size for comparison
+        sizes['original'] = original_size
+
+        return versions, sizes
         
     except Exception as e:
         raise ValueError(f"Error processing image: {str(e)}")
@@ -184,84 +194,101 @@ def upload_to_s3(bucket_name: str, entity_type: str, entity_id: str, photo_type:
 def lambda_handler(event, context):
     """
     Photo upload handler for all entity types
-    
-    Expected request format:
-    {
-        "image": "data:image/jpeg;base64,...",
-        "entity_type": "user|org|campaign",
-        "entity_id": "nickname_or_id",
-        "photo_type": "profile|logo|banner|gallery",
-        "uploaded_by": "user_id",
-        "upload_source": "user-service|org-service"
-    }
+
+    Uses PhotoUploadRequest contract for input validation.
+
+    Expected request format follows PhotoUploadRequest schema:
+    - image: base64 encoded image data
+    - entity_type: 'user', 'org', or 'campaign'
+    - entity_id: identifier for the entity
+    - photo_type: 'profile', 'logo', 'banner', 'gallery', or 'thumbnail'
+    - uploaded_by: optional user ID
+    - upload_source: optional source service
     """
-    
+
+    start_time = time.time()
+
     try:
-        # Validate input
-        params = validate_input(event)
-        
-        image_data = params['image']
-        entity_type = params['entity_type']
-        entity_id = params['entity_id']
-        photo_type = params['photo_type']
-        uploaded_by = params.get('uploaded_by')
-        upload_source = params.get('upload_source', 'unknown')
-        
+        # Validate input using contract
+        request = validate_input(event)
+
+        image_data = request.image
+        entity_type = request.entity_type
+        entity_id = request.entity_id
+        photo_type = request.photo_type
+        uploaded_by = request.uploaded_by
+        upload_source = request.upload_source or 'unknown'
+
         print(f"Processing photo upload: {entity_type}/{entity_id}/{photo_type}")
-        
+
         # Get bucket name from environment or parameter store
         bucket_name = os.environ.get('PHOTO_BUCKET_NAME')
         if not bucket_name:
             return create_failure_response(
-                "CONFIGURATION_ERROR",
                 "S3 bucket not configured",
-                {"missing_config": "PHOTO_BUCKET_NAME"}
+                entity_type, entity_id, photo_type
             )
-        
+
         # Process image into multiple versions
-        versions = process_image(image_data)
-        
+        versions, sizes = process_image(image_data)
+
         # Upload to S3
         upload_result = upload_to_s3(bucket_name, entity_type, entity_id, photo_type, versions)
-        
+
         # Generate photo ID
         photo_id = f"{entity_type}_{entity_id}_{photo_type}_{int(datetime.now(timezone.utc).timestamp())}"
-        
-        # Create success response
-        response_data = {
-            'photo_id': photo_id,
-            'entity_type': entity_type,
-            'entity_id': entity_id,
-            'photo_type': photo_type,
-            'urls': upload_result['urls']
+
+        # Calculate processing metrics
+        processing_time = round(time.time() - start_time, 3)
+
+        # Calculate size reduction
+        original_size = sizes['original']
+        largest_processed = max(sizes['thumbnail'], sizes['standard'], sizes['high_res'])
+        reduction_percent = round((1 - largest_processed / original_size) * 100, 1)
+        size_reduction = f"{reduction_percent}% (from {original_size} to {largest_processed} bytes)"
+
+        # Create version info
+        version_info = {
+            'thumbnail': {'size': sizes['thumbnail'], 'dimensions': '150x150'},
+            'standard': {'size': sizes['standard'], 'dimensions': '320x320'},
+            'high_res': {'size': sizes['high_res'], 'dimensions': '800x800'}
         }
-        
-        # Execution metadata
-        execution_metadata = {
-            's3_keys': upload_result['s3_keys'],
-            'bucket_name': bucket_name,
-            'uploaded_by': uploaded_by,
-            'upload_source': upload_source
-        }
-        
+
         print(f"Photo upload completed successfully: {photo_id}")
-        
-        return create_success_response(response_data, execution_metadata)
-        
+
+        # Create PhotoUploadResponse using the contract
+        response = PhotoUploadResponse(
+            success=True,
+            photo_id=photo_id,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            photo_type=photo_type,
+            thumbnail_url=upload_result['urls'].get('thumbnail'),
+            standard_url=upload_result['urls'].get('standard'),
+            high_res_url=upload_result['urls'].get('high_res'),
+            versions=version_info,
+            processing_time=processing_time,
+            size_reduction=size_reduction,
+            message=f"Photo uploaded successfully in {processing_time}s"
+        )
+
+        return response.to_dict()
+
     except ValueError as e:
         print(f"Validation error: {str(e)}")
+        entity_type = event.get('entity_type', 'user')
+        entity_id = event.get('entity_id', '')
+        photo_type = event.get('photo_type', 'profile')
         return create_failure_response(
-            "VALIDATION_ERROR",
-            str(e),
-            {
-                "field": "input_validation",
-                "required_fields": ["image", "entity_type", "entity_id", "photo_type"]
-            }
+            f"Validation error: {str(e)}",
+            entity_type, entity_id, photo_type
         )
     except Exception as e:
         print(f"Unexpected error: {str(e)}")
+        entity_type = event.get('entity_type', 'user')
+        entity_id = event.get('entity_id', '')
+        photo_type = event.get('photo_type', 'profile')
         return create_failure_response(
-            "INTERNAL_ERROR",
-            "Photo upload failed due to internal error",
-            {"error_details": str(e)}
+            f"Photo upload failed: {str(e)}",
+            entity_type, entity_id, photo_type
         )
